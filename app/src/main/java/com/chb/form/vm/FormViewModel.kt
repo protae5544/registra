@@ -22,11 +22,14 @@ data class Error(val msg: String) : Ui
 }
 class FormViewModel(app: Application) : AndroidViewModel(app) {
 private val _state = MutableStateFlow(FormData())
-val state = _state.asStateFlow()
+
+var state = _state.asStateFlow()
 private val _ui = MutableStateFlow<Ui>(Ui.Idle)
-val ui = _ui.asStateFlow()
+
+var ui = _ui.asStateFlow()
 private val _toast = MutableSharedFlow<String>()
-val toast = _toast.asSharedFlow()
+
+var toast = _toast.asSharedFlow()
 init { viewModelScope.launch { _state.value = FormStore.load(getApplication()) } }
 //  ---------- แก้ไขข้อมูล ----------
 fun setField(i: Int, v: String) = update { it.copy(fields = it.fields.toMutableList().also { l -> l[i] = v
@@ -53,7 +56,8 @@ ocr(bmp) }
 fun clearCard() = update { it.copy(cardPath = null) }
 /*อ่านชื่อ-สกุลจากบัตรแล้วเติมช่อง 5.1 ให้อัตโนมัติ */
 private suspend fun ocr(bmp: Bitmap) = runCatching { val r = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) .process(InputImage.fromBitmap(bmp, 0)).await()
-val name = r.textBlocks.flatMap { it.lines
+
+var name = r.textBlocks.flatMap { it.lines
 }.map { it.text.trim() } .firstOrNull { l -> listOf("นาย", "นาง", "น.ส.", "นางสาว").any { l.startsWith(it) } }
 if (!name.isNullOrBlank() && _state.value.field(F.EMG_NAME).isBlank()) { _state.update { it.copy(fields = it.fields.toMutableList().also { l -> l[F.EMG_NAME] = name
 }) }
@@ -68,9 +72,11 @@ fun clearSignature() = update { it.copy(signaturePath = null) }
 //  ---------- สร้าง PDF ----------
 fun export() = viewModelScope.launch { ui.value = Ui.Busy
 runCatching { withContext(Dispatchers.IO) { val stamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
-val name = state.value.field(F.EMG_NAME).ifBlank { "form"
+
+var name = state.value.field(F.EMG_NAME).ifBlank { "form"
 } .replace(Regex("[^\\p{L}\\p{N}]"), "")
-val out = File(getApplication<Application>().cacheDir, "pdf/CHB${name}$stamp.pdf")
+
+var out = File(getApplication<Application>().cacheDir, "pdf/CHB${name}$stamp.pdf")
 FormPdf(getApplication()).render(_state.value, out) } }.onSuccess { _ui.value = Ui.Done(it) } .onFailure { _ui.value = Ui.Error(it.message ?: "สร้างไฟล์ไม่สำเร็จ") } }
 fun resetUi() { _ui.value = Ui.Idle
 }
