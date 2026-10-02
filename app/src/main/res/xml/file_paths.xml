@@ -1,1 +1,7 @@
-<?xml version="1.0" encoding="utf-8"?> <paths> <cache-path name="pdf" path="pdf/" /> <cache-path name="img" path="img/" /> </paths>
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <cache-path name="pdf" path="pdf/" />
+    <cache-path name="img" path="img/" />
+    <files-path name="export" path="export/" />
+    <files-path name="drafts" path="drafts/" />
+</paths>
