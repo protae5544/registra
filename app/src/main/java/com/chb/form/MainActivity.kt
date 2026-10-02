@@ -201,9 +201,9 @@ class MainActivity : ComponentActivity() {
                                                     }
                                                 }.onSuccess {
                                                     dormPdfFile = it
-                                                    currentToast = ToastMessage("สร้าง PDF สำเร็จ", ToastType.SUCCESS)
+                                                    currentToast = ToastMessage(text = "สร้าง PDF สำเร็จ", type = ToastType.SUCCESS)
                                                 }.onFailure {
-                                                    currentToast = ToastMessage(it.message ?: "สร้าง PDF ไม่สำเร็จ", ToastType.WARNING)
+                                                    currentToast = ToastMessage(text = it.message ?: "สร้าง PDF ไม่สำเร็จ", type = ToastType.WARNING)
                                                 }
                                                 dormBusy = false
                                             }
