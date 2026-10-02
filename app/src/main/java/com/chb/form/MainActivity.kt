@@ -8,38 +8,39 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.chb.form.data.DormFormData
 import com.chb.form.data.TemplateType
 import com.chb.form.ocr.ExtractedIdCard
-import com.chb.form.ui.CameraScreen
-import com.chb.form.ui.CropScreen
-import com.chb.form.ui.DormPlaceholderScreen
-import com.chb.form.ui.FormWizard
-import com.chb.form.ui.OcrReviewScreen
-import com.chb.form.ui.PreviewScreen
-import com.chb.form.ui.SignaturePad
-import com.chb.form.ui.TemplateSelectScreen
-import com.chb.form.ui.ToastHost
-import com.chb.form.ui.ToastMessage
-import com.chb.form.ui.ToastType
+import com.chb.form.pdf.DormPdf
+import com.chb.form.ui.*
 import com.chb.form.ui.theme.ChbTheme
 import com.chb.form.vm.FormViewModel
 import com.chb.form.vm.Ui
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
 
@@ -53,14 +54,18 @@ class MainActivity : ComponentActivity() {
                 val ui by vm.ui.collectAsStateWithLifecycle()
                 val formState by vm.state.collectAsStateWithLifecycle()
                 val lastExportedHash by vm.lastExportedHash.collectAsStateWithLifecycle()
+                val scope = rememberCoroutineScope()
 
                 var currentToast by remember { mutableStateOf<ToastMessage?>(null) }
                 var selectedTemplate by remember { mutableStateOf<TemplateType?>(null) }
                 var screen by remember { mutableStateOf<Screen>(Screen.Form) }
+                var dormData by remember { mutableStateOf(DormFormData()) }
+                var dormBusy by remember { mutableStateOf(false) }
+                var dormPdfFile by remember { mutableStateOf<File?>(null) }
 
-                // Back handling
                 BackHandler(enabled = selectedTemplate != null || screen != Screen.Form) {
                     when {
+                        dormPdfFile != null -> dormPdfFile = null
                         selectedTemplate != null && screen != Screen.Form -> {
                             screen = when (screen) {
                                 is Screen.Crop -> Screen.Camera
@@ -101,6 +106,7 @@ class MainActivity : ComponentActivity() {
                                     onSelect = { type ->
                                         selectedTemplate = type
                                         screen = Screen.Form
+                                        dormPdfFile = null
                                     }
                                 )
                             }
@@ -164,9 +170,42 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                             selectedTemplate == TemplateType.DORMITORY -> {
-                                DormPlaceholderScreen(
-                                    onBack = { selectedTemplate = null }
-                                )
+                                if (dormPdfFile != null) {
+                                    DormPdfPreview(
+                                        file = dormPdfFile!!,
+                                        onClose = { dormPdfFile = null },
+                                        onBackToForm = { dormPdfFile = null }
+                                    )
+                                } else {
+                                    DormFormScreen(
+                                        data = dormData,
+                                        onUpdate = { dormData = it },
+                                        onBack = { selectedTemplate = null },
+                                        onExport = {
+                                            scope.launch {
+                                                dormBusy = true
+                                                runCatching {
+                                                    withContext(Dispatchers.IO) {
+                                                        val stamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
+                                                        val name = dormData.applicants.firstOrNull { it.name.isNotBlank() }?.name
+                                                            ?.replace(Regex("""[^\\p{L}\\p{M}\\p{N}]"""), "")
+                                                            ?: "dorm"
+                                                        val outDir = File(filesDir, "export").apply { mkdirs() }
+                                                        val out = File(outDir, "DORM_${name}_$stamp.pdf")
+                                                        DormPdf(this@MainActivity).render(dormData, out)
+                                                        out
+                                                    }
+                                                }.onSuccess {
+                                                    dormPdfFile = it
+                                                    currentToast = ToastMessage("สร้าง PDF สำเร็จ", ToastType.SUCCESS)
+                                                }.onFailure {
+                                                    currentToast = ToastMessage(it.message ?: "สร้าง PDF ไม่สำเร็จ", ToastType.WARNING)
+                                                }
+                                                dormBusy = false
+                                            }
+                                        }
+                                    )
+                                }
                             }
                         }
 
@@ -180,7 +219,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (ui is Ui.Busy) {
+                if (ui is Ui.Busy || dormBusy) {
                     AlertDialog(
                         onDismissRequest = {},
                         confirmButton = {},
@@ -189,6 +228,44 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun DormPdfPreview(
+    file: File,
+    onClose: () -> Unit,
+    onBackToForm: () -> Unit
+) {
+    androidx.compose.foundation.layout.Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .padding(24.dp),
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            "สร้าง PDF สำเร็จ",
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+            fontSize = 20.sp
+        )
+        Spacer(Modifier.height(12.dp))
+        Text("ไฟล์: ${file.name}", fontSize = 14.sp)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "ตำแหน่ง: ${file.absolutePath}",
+            fontSize = 12.sp,
+            color = androidx.compose.ui.graphics.Color.Gray
+        )
+        Spacer(Modifier.height(24.dp))
+        Button(onClick = onBackToForm) {
+            Text("กลับไปแก้ไข")
+        }
+        Spacer(Modifier.height(12.dp))
+        OutlinedButton(onClick = onClose) {
+            Text("ปิด")
         }
     }
 }
