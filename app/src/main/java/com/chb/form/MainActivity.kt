@@ -8,23 +8,16 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chb.form.data.DormFormData
 import com.chb.form.data.TemplateType
@@ -173,10 +166,10 @@ class MainActivity : ComponentActivity() {
                             }
                             selectedTemplate == TemplateType.DORMITORY -> {
                                 if (dormPdfFile != null) {
-                                    DormPdfPreview(
+                                    DormPdfResultScreen(
                                         file = dormPdfFile!!,
-                                        onClose = { dormPdfFile = null },
-                                        onBackToForm = { dormPdfFile = null }
+                                        onBackToForm = { dormPdfFile = null },
+                                        onClose = { dormPdfFile = null }
                                     )
                                 } else {
                                     DormFormScreen(
@@ -232,44 +225,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun DormPdfPreview(
-    file: File,
-    onClose: () -> Unit,
-    onBackToForm: () -> Unit
-) {
-    androidx.compose.foundation.layout.Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .padding(24.dp),
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            "สร้าง PDF สำเร็จ",
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-            fontSize = 20.sp
-        )
-        Spacer(Modifier.height(12.dp))
-        Text("ไฟล์: ${file.name}", fontSize = 14.sp)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "ตำแหน่ง: ${file.absolutePath}",
-            fontSize = 12.sp,
-            color = androidx.compose.ui.graphics.Color.Gray
-        )
-        Spacer(Modifier.height(24.dp))
-        Button(onClick = onBackToForm) {
-            Text("กลับไปแก้ไข")
-        }
-        Spacer(Modifier.height(12.dp))
-        OutlinedButton(onClick = onClose) {
-            Text("ปิด")
         }
     }
 }
