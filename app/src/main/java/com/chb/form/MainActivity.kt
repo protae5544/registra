@@ -31,6 +31,8 @@ import com.chb.form.data.TemplateType
 import com.chb.form.ocr.ExtractedIdCard
 import com.chb.form.pdf.DormPdf
 import com.chb.form.ui.*
+import com.chb.form.ui.ToastMessage
+import com.chb.form.ui.ToastType
 import com.chb.form.ui.theme.ChbTheme
 import com.chb.form.vm.FormViewModel
 import com.chb.form.vm.Ui
@@ -188,7 +190,9 @@ class MainActivity : ComponentActivity() {
                                                     withContext(Dispatchers.IO) {
                                                         val stamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
                                                         val name = dormData.applicants.firstOrNull { it.name.isNotBlank() }?.name
-                                                            ?.replace(Regex("""[^\\p{L}\\p{M}\\p{N}]"""), "")
+                                                            ?.filter { it.isLetterOrDigit() || it.isWhitespace() }
+                                                            ?.trim()
+                                                            ?.replace(" ", "_")
                                                             ?: "dorm"
                                                         val outDir = File(filesDir, "export").apply { mkdirs() }
                                                         val out = File(outDir, "DORM_${name}_$stamp.pdf")
