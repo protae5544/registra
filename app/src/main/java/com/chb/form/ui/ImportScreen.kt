@@ -27,38 +27,63 @@ fun ImportScreen(
     onPdf: (Uri) -> Unit,
     onJson: (String) -> Unit,
     onContinue: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit = {}
 ) {
     var jsonText by remember { mutableStateOf("") }
-    val pickPdf = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(onPdf) }
+    val pickPdf = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(onPdf)
+    }
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("นำเข้าฟอร์ม PDF", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text(
-            "รองรับ PDF ที่มี AcroForm หรือวาดด้วยเส้น/กรอบ — ระบบจะตรวจจับฟิลด์และแจ้งคำเตือนถ้าไม่ครบ",
+            "นำเข้าแบบฟอร์ม PDF",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            "เลือกไฟล์ PDF ใดก็ได้ ระบบจะสกัดข้อความ เส้น กรอบ และฟิลด์อัตโนมัติ " +
+                "แล้วให้คุณตรวจแก้ก่อนกรอกและสร้าง PDF ใหม่",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Button(onClick = { pickPdf.launch(arrayOf("application/pdf")) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-            Icon(Icons.Rounded.UploadFile, null); Spacer(Modifier.width(8.dp)); Text("เลือกไฟล์ PDF")
+
+        Button(
+            onClick = { pickPdf.launch(arrayOf("application/pdf")) },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Rounded.UploadFile, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text("เลือกไฟล์ PDF")
         }
+
         if (busy) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
             Text("กำลังวิเคราะห์ PDF...")
         }
+
         report?.let { r ->
             Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(r.template.name, fontWeight = FontWeight.SemiBold)
+                Column(
+                    Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(r.template.name.ifBlank { "ฟอร์มที่นำเข้า" }, fontWeight = FontWeight.SemiBold)
                     Text("ข้อความ ${r.textCount} · เส้น ${r.segCount} · กรอบ ${r.boxCount}")
                     Text("AcroForm ${r.acroFields} · ฟิลด์ที่ตรวจได้ ${r.detectedFields}")
                     Text("ขนาดหน้า ${r.template.pageW.toInt()} × ${r.template.pageH.toInt()} pt")
                 }
             }
         }
+
         if (warnings.isNotEmpty()) {
             Text("คำเตือน", fontWeight = FontWeight.Bold)
             warnings.forEach { w ->
@@ -70,10 +95,18 @@ fun ImportScreen(
                 Text("• ${w.message}", color = color, style = MaterialTheme.typography.bodySmall)
             }
         }
+
         HorizontalDivider()
+
         Text("นำเข้าข้อมูล JSON (ไม่บังคับ)", fontWeight = FontWeight.SemiBold)
+        Text(
+            "ใช้เมื่อมีข้อมูลหลายชุดหรือต้องการเติมฟิลด์จากไฟล์ JSON",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         OutlinedTextField(
-            value = jsonText, onValueChange = { jsonText = it },
+            value = jsonText,
+            onValueChange = { jsonText = it },
             modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp),
             placeholder = { Text("{ \"ชื่อ\": \"...\" } หรือ { \"records\": [ ... ] }") },
             maxLines = 8
@@ -81,15 +114,23 @@ fun ImportScreen(
         OutlinedButton(
             onClick = { if (jsonText.isNotBlank()) onJson(jsonText) },
             enabled = report != null && jsonText.isNotBlank()
-        ) { Text("นำเข้า JSON") }
+        ) {
+            Text("นำเข้า JSON")
+        }
+
         Spacer(Modifier.height(8.dp))
+
         Button(
             onClick = onContinue,
-            enabled = report != null && (report.template.fields.isNotEmpty() || report.warnings.none { it.level == WarningLevel.ERROR }),
+            enabled = report != null && (
+                report.template.fields.isNotEmpty() ||
+                    report.warnings.none { it.level == WarningLevel.ERROR }
+            ),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Icon(Icons.Rounded.Description, null); Spacer(Modifier.width(8.dp)); Text("ไปหน้ากรอก / ตรวจฟิลด์")
+            Icon(Icons.Rounded.Description, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text("ไปหน้ากรอก / ตรวจฟิลด์")
         }
-        TextButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("กลับ") }
     }
 }
