@@ -1,2 +1,35 @@
 <!DOCTYPE html>
-<html lang="th"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Loading Overlay Composer…</title></head><body><p>Placeholder — full asset will be updated.</p><script>location.replace('https://cdn.jsdelivr.net/gh/protae5544/registra@master/app/src/main/assets/overlay/index.html');</script></body></html>
+<html lang="th">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<title>Overlay Composer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js" crossorigin="anonymous"></script>
+<script src="payload.js"></script>
+</head>
+<body>
+<div id="boot" style="font-family:system-ui;padding:24px;color:#333">กำลังโหลด Overlay Composer…</div>
+<script>
+(function(){
+  function b64ToUint8(b64){
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+  try {
+    if (typeof pako === 'undefined') throw new Error('pako ไม่พร้อม (ต้องมีเน็ตครั้งแรก)');
+    if (!window.__OVERLAY_GZ_B64__) throw new Error('ไม่พบ payload');
+    const inflated = pako.ungzip(b64ToUint8(window.__OVERLAY_GZ_B64__), { to: 'string' });
+    document.open();
+    document.write(inflated);
+    document.close();
+  } catch (e) {
+    document.getElementById('boot').innerHTML = 'โหลดไม่สำเร็จ: ' + e.message +
+      '<br><small>ตรวจสอบการเชื่อมต่ออินเทอร์เน็ตแล้วเปิดแอปใหม่</small>';
+    console.error(e);
+  }
+})();
+</script>
+</body>
+</html>
