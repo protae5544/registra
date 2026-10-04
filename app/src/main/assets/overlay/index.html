@@ -1,42 +1,236 @@
 <!DOCTYPE html>
 <html lang="th">
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<meta name="theme-color" content="#0071e3" />
 <title>Overlay Composer</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js" crossorigin="anonymous"></script>
-<script src="c0.js"></script>
-<script src="c1.js"></script>
-<script src="c2.js"></script>
-<script src="c3.js"></script>
-<script src="c4.js"></script>
-<script src="c5.js"></script>
-<script src="c6.js"></script>
-<script src="c7.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
+<style>
+@font-face {
+  font-family: "THSarabunNew";
+  src: url("https://f005.backblazeb2.com/file/asset-/fonts/THSarabunNew.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "THSarabunNew";
+  src: url("https://f005.backblazeb2.com/file/asset-/fonts/THSarabunNew+Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;
+}
+</style>
+<link rel="stylesheet" href="composer.css" />
+<link rel="preload" href="https://f005.backblazeb2.com/file/asset-/fonts/THSarabunNew.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="https://f005.backblazeb2.com/file/asset-/fonts/THSarabunNew+Bold.woff2" as="font" type="font/woff2" crossorigin>
 </head>
 <body>
-<div id="boot" style="font-family:system-ui;padding:24px;color:#333">กำลังโหลด Overlay Composer…</div>
-<script>
-(function(){
-  function b64ToUint8(b64){
-    const bin = atob(b64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return bytes;
-  }
-  try {
-    if (typeof pako === 'undefined') throw new Error('pako ไม่พร้อม (ต้องมีเน็ตครั้งแรก)');
-    if (!window.__OVERLAY_GZ_B64__) throw new Error('ไม่พบ payload');
-    const inflated = pako.ungzip(b64ToUint8(window.__OVERLAY_GZ_B64__), { to: 'string' });
-    document.open();
-    document.write(inflated);
-    document.close();
-  } catch (e) {
-    document.getElementById('boot').innerHTML = 'โหลดไม่สำเร็จ: ' + e.message +
-      '<br><small>ตรวจสอบการเชื่อมต่ออินเทอร์เน็ตแล้วเปิดแอปใหม่</small>';
-    console.error(e);
-  }
-})();
-</script>
+
+<!-- ── BG toolbar ── -->
+<div class="bar">
+  <b>BG</b>
+  <input type="file" id="bgFile" multiple accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/svg+xml,.svg,application/pdf,.pdf">
+  <button id="bgClear" type="button">Clear BG</button>
+  <span id="bgStatus" class="status muted">ยังไม่โหลด</span>
+</div>
+
+<!-- ── JSON toolbar ── -->
+<div class="bar">
+  <b>JSON</b>
+  <input type="file" id="jsonFile" accept=".json,application/json">
+  <button id="btnPasteLoad" type="button">Load Paste</button>
+  <button id="btnClearJson" type="button" class="warn">Clear</button>
+  <span id="jsonStatus" class="status muted">ยังไม่โหลด</span>
+</div>
+
+<!-- ── draft banner ── -->
+<div id="draftBanner" class="bar">
+  <span>พบ draft เก่า — กู้คืนไหม?</span><span class="spacer"></span>
+  <button id="draftRestore" class="primary" type="button">กู้คืน</button>
+  <button id="draftDismiss" type="button">ละทิ้ง</button>
+</div>
+
+<!-- ── main toolbar ── -->
+<div class="bar">
+  <button id="btnFirst" type="button" disabled>|◀</button>
+  <button id="btnPrev"  type="button" disabled>◀</button>
+  <span id="recordCounter"><b>—/—</b></span>
+  <button id="btnNext"  type="button" disabled>▶</button>
+  <button id="btnLast"  type="button" disabled>▶|</button>
+  <span class="spacer"></span>
+  <button id="btnSnap" type="button" class="snap-on">⊹ Snap ON</button>
+  <button id="btnViewAll" type="button" class="view-all">☰ ทุกหน้า</button>
+  <button class="add-btn" type="button" data-add="text">+Text</button>
+  <button class="add-btn" type="button" data-add="image">+Image</button>
+  <button class="add-btn" type="button" data-add="qr">+QR</button>
+  <button id="btnExportKeys" type="button">Export Keys</button>
+  <button id="btnExportLayout" type="button">Export Layout</button>
+  <button id="btnImportLayout" type="button">Import Layout</button>
+  <button id="btnPNG" type="button">PNG</button>
+  <button class="primary" id="btnPDFone" type="button">PDF นี้</button>
+  <button id="btnPDFall" type="button">PDF ทั้งหมด</button>
+  <input type="file" id="layoutFile" accept=".json,application/json" class="hidden">
+  <input type="file" id="objImageFile" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" class="hidden">
+</div>
+
+<div class="app">
+  <!-- LEFT -->
+  <div>
+    <div class="card">
+      <div class="title">Canvas
+        <span style="font-size:11px;font-weight:400;text-transform:none;margin-left:8px;color:var(--muted)">
+          แตะ=เลือก · ลาก=ย้าย · จุดกลม=ปรับขนาด
+        </span>
+      </div>
+      <div class="row" style="margin-top:8px;justify-content:center">
+        <button id="btnPgPrev" type="button">◀ หน้าก่อน</button>
+        <span id="pageCounter"><b>0/0</b></span>
+        <button id="btnPgNext" type="button">หน้าถัดไป ▶</button>
+      </div>
+      <div style="margin-top:8px">
+        <div id="canvasWrap"></div>
+        <div id="pageEmpty" class="muted" style="display:none;text-align:center;padding:30px 10px">
+          ยังไม่มีหน้าเอกสาร — โหลดภาพ/PDF หรือกดปุ่มเพิ่มด้านล่าง
+        </div>
+        <div class="row" style="margin-top:8px;justify-content:center">
+          <button id="btnAddPage" type="button">+ เพิ่มหน้าว่าง</button>
+          <button id="btnDelPage" type="button" class="warn">ลบหน้านี้</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="title">Paste JSON</div>
+      <div style="margin-top:8px">
+        <textarea id="pasteJson" placeholder='[{"name":"สมชาย","id":"A001"}]'></textarea>
+        <div style="margin-top:6px"><button id="btnPasteLoad2" type="button">Load JSON</button></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="title">Current Record</div>
+      <div style="margin-top:8px"><pre id="recordPreview">ยังไม่มีข้อมูล</pre></div>
+    </div>
+    <div class="card">
+      <div class="title">Status</div>
+      <div style="margin-top:8px"><div id="opStatus" class="status"></div></div>
+    </div>
+  </div>
+
+  <!-- RIGHT -->
+  <div>
+    <div class="card">
+      <div class="tabs">
+        <button class="tab active" type="button" data-tab="edit">Object</button>
+        <button class="tab" type="button" data-tab="fill">Fill</button>
+        <button class="tab" type="button" data-tab="fields">Fields</button>
+        <button class="tab" type="button" data-tab="history">History</button>
+      </div>
+
+      <!-- OBJECT PANE -->
+      <div class="pane active" data-pane="edit">
+        <div class="summary" style="margin-bottom:10px">
+          <div class="box"><div class="muted">Records</div><div class="n" id="sumRecords">0</div></div>
+          <div class="box"><div class="muted">Fields</div><div class="n" id="sumFields">0</div></div>
+          <div class="box"><div class="muted">Objects</div><div class="n" id="sumObjects">0</div></div>
+          <div class="box"><div class="muted">Selected</div><div class="n" id="sumSelected">0</div></div>
+        </div>
+        <div id="noSelection" class="muted">แตะ object บน canvas เพื่อเลือก หรือกด + เพื่อเพิ่ม</div>
+        <div id="editor" style="display:none">
+          <div style="background:#eef4ff;border:1px solid #c0d4f8;border-radius:10px;padding:10px;margin-bottom:10px">
+            <div style="font-size:11px;color:#1a5fd0;font-weight:700;margin-bottom:8px">📍 ตำแหน่ง &amp; ขนาด (%)</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+              <div><label style="font-size:11px">X %</label><input id="edX" type="number" step="0.1" style="min-height:36px;font-size:13px"></div>
+              <div><label style="font-size:11px">Y %</label><input id="edY" type="number" step="0.1" style="min-height:36px;font-size:13px"></div>
+              <div><label style="font-size:11px">W %</label><input id="edW" type="number" step="0.1" style="min-height:36px;font-size:13px"></div>
+              <div><label style="font-size:11px">H %</label><input id="edH" type="number" step="0.1" style="min-height:36px;font-size:13px"></div>
+            </div>
+            <div style="margin-top:6px">
+              <button id="btnApplyPos" type="button" class="primary" style="min-height:36px;font-size:12px">Apply ตำแหน่ง/ขนาด</button>
+            </div>
+          </div>
+
+          <div class="grid2"><label>Key</label><input id="edKey" type="text" placeholder="ชื่อ key สำหรับกรอก"></div>
+          <div class="grid2"><label>ข้อความ</label><input id="edText" type="text" placeholder="ค่าตัวอย่าง/placeholder"></div>
+          <div class="grid2"><label>Type</label>
+            <select id="edType"><option value="text">text</option><option value="image">image</option><option value="qr">qr</option></select>
+          </div>
+          <div class="grid2"><label>Align</label>
+            <select id="edAlign"><option value="left">left</option><option value="center">center</option><option value="right">right</option></select>
+          </div>
+          <div class="ed-row-color"><label>Color</label><input id="edColor" type="color" value="#000000"><span class="muted" style="font-size:11px">text only</span></div>
+          <div class="grid2"><label>Image Fit</label>
+            <select id="edImageFit"><option value="contain">contain</option><option value="cover">cover</option><option value="fill">fill</option></select>
+          </div>
+          <div class="grid2"><label>Font px</label><input id="edFontSize" type="number" step="1"></div>
+          <div class="grid2"><label>Line H</label><input id="edLineHeight" type="number" step="0.05"></div>
+          <div class="grid2"><label>Rotate°</label><input id="edRotation" type="number" step="1"></div>
+          <div class="grid2"><label>Lock ratio</label><input id="edLockAspect" type="checkbox"></div>
+          <div class="grid2"><label>Locked</label><input id="edLocked" type="checkbox"></div>
+
+          <div class="row" style="margin-top:12px">
+            <button id="btnApply" type="button" class="primary">Apply ทั้งหมด</button>
+            <button id="btnDup" type="button">Duplicate</button>
+            <button id="btnDel" type="button" class="warn">Delete</button>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <button id="btnFront" type="button">Bring front</button>
+            <button id="btnBack" type="button">Send back</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- FILL PANE -->
+      <div class="pane" data-pane="fill">
+        <div class="title" style="margin-bottom:8px">กรอกข้อมูล <span id="fillRecNo" class="muted"></span></div>
+        <div class="row" style="margin-bottom:8px">
+          <button id="fillSample" type="button" class="add-btn">+ Record ตัวอย่าง</button>
+          <button id="fillAdd" type="button">+ Record ว่าง</button>
+          <button id="fillDup" type="button">Duplicate</button>
+          <button id="fillDel" type="button" class="warn">ลบ record</button>
+        </div>
+        <div class="row" style="margin-bottom:8px">
+          <button id="fillExportKeys" type="button">Export Keys JSON</button>
+          <button id="fillExportData" type="button">Export Data JSON</button>
+        </div>
+        <div class="list" id="fillList" style="max-height:none"></div>
+      </div>
+
+      <!-- FIELDS PANE -->
+      <div class="pane" data-pane="fields">
+        <div class="title">Fields ทั้งหมด (เพิ่ม/ลบได้)</div>
+        <div class="row" style="margin-top:8px">
+          <button id="btnAddField" type="button" class="add-btn">+ เพิ่มฟิลด์ใหม่</button>
+        </div>
+        <div class="list" id="schemaList"><div class="muted">ยังไม่มี fields</div></div>
+      </div>
+
+      <!-- HISTORY PANE -->
+      <div class="pane" data-pane="history">
+        <div class="row" style="justify-content:space-between;margin-bottom:8px">
+          <div class="title">Export History</div>
+          <button id="btnClearHist" type="button" class="warn" style="min-height:34px">Clear all</button>
+        </div>
+        <div id="histEmpty" class="muted">ยังไม่มีประวัติ</div>
+        <div class="hist" id="histGrid"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="loadWrap" aria-live="polite">
+  <div class="loadcard">
+    <div class="spinner"></div>
+    <div class="loadmsg" id="loadMsg">กำลังทำงาน…</div>
+    <div class="progtrack"><div class="progbar" id="progBar"></div></div>
+    <div class="progpct" id="progPct"></div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script src="app.js"></script>
 </body>
 </html>

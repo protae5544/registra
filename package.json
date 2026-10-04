@@ -1,0 +1,9 @@
+{
+  "name": "chb-form-overlay",
+  "private": true,
+  "description": "Overlay Composer (สร้างเทมเพลตเอกสาร) — static preview + Android assets",
+  "scripts": {
+    "dev": "node serve-overlay.js",
+    "start": "node serve-overlay.js"
+  }
+}

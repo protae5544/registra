@@ -35,3 +35,6 @@ app/version.properties
 
 # SonarQube
 .sonar/
+
+# node (preview server + smoke test only)
+node_modules/
