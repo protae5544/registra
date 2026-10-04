@@ -82,12 +82,18 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) {
                     templateVm.fileReady.collect { file ->
                         runCatching { PdfTools.share(this@MainActivity, file) }
-                        currentToast = ToastMessage("สร้าง PDF แล้ว — เปิดแชร์", ToastType.SUCCESS)
+                        currentToast = ToastMessage(
+                            text = "สร้าง PDF แล้ว — เปิดแชร์",
+                            type = ToastType.SUCCESS
+                        )
                     }
                 }
                 LaunchedEffect(tplState.message) {
                     tplState.message?.let {
-                        currentToast = ToastMessage(it, ToastType.INFO)
+                        currentToast = ToastMessage(
+                            text = it,
+                            type = ToastType.INFO
+                        )
                         templateVm.clearMessage()
                     }
                 }
@@ -238,10 +244,14 @@ class MainActivity : ComponentActivity() {
                                                 }.onSuccess {
                                                     dormPdfFile = it
                                                     currentToast = ToastMessage(
-                                                        if (dormWarnings.isEmpty()) "สร้าง PDF สำเร็จ" else "สร้าง PDF สำเร็จ (มีคำเตือน)",
-                                                        ToastType.SUCCESS)
+                                                        text = if (dormWarnings.isEmpty()) "สร้าง PDF สำเร็จ" else "สร้าง PDF สำเร็จ (มีคำเตือน)",
+                                                        type = ToastType.SUCCESS
+                                                    )
                                                 }.onFailure {
-                                                    currentToast = ToastMessage(it.message ?: "สร้าง PDF ไม่สำเร็จ", ToastType.WARNING)
+                                                    currentToast = ToastMessage(
+                                                        text = it.message ?: "สร้าง PDF ไม่สำเร็จ",
+                                                        type = ToastType.WARNING
+                                                    )
                                                 }
                                                 dormBusy = false
                                             }
