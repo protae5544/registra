@@ -98,11 +98,6 @@ class GraphicsScanner(private val page: PDPage) : PDFGraphicsStreamEngine(page) 
         pts.clear()
     }
 
-    override fun fillPath(windingRule: Int) = thinFillAsLine()
-    override fun fillAndStrokePath(windingRule: Int) {
-        strokePath()
-    }
-
     private fun thinFillAsLine() {
         if (pts.size >= 4) {
             val xs = pts.map { it.x }; val ys = pts.map { it.y }
@@ -116,7 +111,6 @@ class GraphicsScanner(private val page: PDPage) : PDFGraphicsStreamEngine(page) 
     }
 
     override fun endPath() { pts.clear() }
-    override fun clip(windingRule: Int) {}
     override fun drawImage(pdImage: PDImage) {}
     override fun shadingFill(shadingName: COSName) {}
 
