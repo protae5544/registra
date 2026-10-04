@@ -1,5 +1,6 @@
 package com.chb.form.importer
 
+import android.graphics.Path
 import android.graphics.PointF
 import com.chb.form.model.Box
 import com.chb.form.model.Seg
@@ -113,7 +114,9 @@ class GraphicsScanner(private val page: PDPage) : PDFGraphicsStreamEngine(page) 
     override fun endPath() { pts.clear() }
     override fun drawImage(pdImage: PDImage) {}
     override fun shadingFill(shadingName: COSName) {}
-    override fun clip() {}
+    override fun clip(windingRule: Path.FillType) {}
+    override fun fillPath(windingRule: Path.FillType) { thinFillAsLine() }
+    override fun fillAndStrokePath(windingRule: Path.FillType) { thinFillAsLine() }
 
     fun scan() {
         processPage(page)
