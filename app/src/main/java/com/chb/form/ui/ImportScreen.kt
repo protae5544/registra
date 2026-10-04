@@ -11,7 +11,6 @@ import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -34,6 +33,11 @@ fun ImportScreen(
         uri?.let(onPdf)
     }
 
+    // fatal = เปิด/โหลดไฟล์ล้มเหลวจริง — ไม่รวม heuristic / no_fields
+    val fatalCodes = setOf("open_fail", "copy_fail", "no_pages", "load_fail", "import")
+    val hasFatal = warnings.any { it.level == WarningLevel.ERROR && it.code in fatalCodes }
+    val canContinue = report != null && report.template.id != "err" && report.template.id != "empty" && !hasFatal
+
     Column(
         Modifier
             .fillMaxSize()
@@ -49,8 +53,8 @@ fun ImportScreen(
             fontWeight = FontWeight.Bold
         )
         Text(
-            "เลือกไฟล์ PDF ใดก็ได้ ระบบจะสกัดข้อความ เส้น กรอบ และฟิลด์อัตโนมัติ " +
-                "แล้วให้คุณตรวจแก้ก่อนกรอกและสร้าง PDF ใหม่",
+            "เลือกไฟล์ PDF ระบบจะพยายามตรวจจับฟิลด์อัตโนมัติ " +
+                "หากไม่ครบ คุณเพิ่ม/ลบฟิลด์เองได้ในหน้าถัดไป",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -80,6 +84,13 @@ fun ImportScreen(
                     Text("ข้อความ ${r.textCount} · เส้น ${r.segCount} · กรอบ ${r.boxCount}")
                     Text("AcroForm ${r.acroFields} · ฟิลด์ที่ตรวจได้ ${r.detectedFields}")
                     Text("ขนาดหน้า ${r.template.pageW.toInt()} × ${r.template.pageH.toInt()} pt")
+                    if (r.detectedFields == 0 && !hasFatal) {
+                        Text(
+                            "ยังไม่พบฟิลด์ — กดไปหน้ากรอก แล้วเพิ่มฟิลด์เองได้",
+                            color = MaterialTheme.colorScheme.tertiary,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                 }
             }
         }
@@ -99,11 +110,6 @@ fun ImportScreen(
         HorizontalDivider()
 
         Text("นำเข้าข้อมูล JSON (ไม่บังคับ)", fontWeight = FontWeight.SemiBold)
-        Text(
-            "ใช้เมื่อมีข้อมูลหลายชุดหรือต้องการเติมฟิลด์จากไฟล์ JSON",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
         OutlinedTextField(
             value = jsonText,
             onValueChange = { jsonText = it },
@@ -113,7 +119,7 @@ fun ImportScreen(
         )
         OutlinedButton(
             onClick = { if (jsonText.isNotBlank()) onJson(jsonText) },
-            enabled = report != null && jsonText.isNotBlank()
+            enabled = canContinue && jsonText.isNotBlank()
         ) {
             Text("นำเข้า JSON")
         }
@@ -122,15 +128,12 @@ fun ImportScreen(
 
         Button(
             onClick = onContinue,
-            enabled = report != null && (
-                report.template.fields.isNotEmpty() ||
-                    report.warnings.none { it.level == WarningLevel.ERROR }
-            ),
+            enabled = canContinue,
             modifier = Modifier.fillMaxWidth()
         ) {
             Icon(Icons.Rounded.Description, contentDescription = null)
             Spacer(Modifier.width(8.dp))
-            Text("ไปหน้ากรอก / ตรวจฟิลด์")
+            Text("ไปหน้ากรอก / เพิ่ม-ลบฟิลด์")
         }
     }
 }
