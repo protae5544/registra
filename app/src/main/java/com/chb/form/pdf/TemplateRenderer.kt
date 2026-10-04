@@ -3,6 +3,8 @@ package com.chb.form.pdf
 import android.content.Context
 import android.graphics.*
 import android.graphics.pdf.PdfDocument
+import android.graphics.pdf.PdfRenderer
+import android.os.ParcelFileDescriptor
 import android.text.TextPaint
 import androidx.core.content.res.ResourcesCompat
 import com.chb.form.R
@@ -38,6 +40,12 @@ class TemplateRenderer(private val ctx: Context) {
             ptW = Math.round(paper.wmm / 25.4f * 72f)
             ptH = Math.round(paper.hmm / 25.4f * 72f)
         }
+
+        // โหลดภาพพื้นหลังจาก PDF ต้นฉบับ (ถ้ามี) — สำคัญต่อการใช้งานจริง
+        val bgBitmap: Bitmap? = if (drawTemplate) {
+            renderBackground(tpl.backgroundPdfPath, Math.round(tpl.pageW), Math.round(tpl.pageH))
+        } else null
+
         val list = records.ifEmpty { listOf(Record()) }
         list.forEachIndexed { i, rec ->
             val page = doc.startPage(PdfDocument.PageInfo.Builder(ptW, ptH, i + 1).create())
@@ -47,16 +55,57 @@ class TemplateRenderer(private val ctx: Context) {
             val s = minOf(ptW / tpl.pageW, ptH / tpl.pageH).coerceAtLeast(0.01f)
             c.translate((ptW - tpl.pageW * s) / 2f, (ptH - tpl.pageH * s) / 2f)
             c.scale(s, s)
+
             if (drawTemplate) {
-                drawBoxes(c, tpl); drawSegs(c, tpl); drawTexts(c, tpl)
+                if (bgBitmap != null && !bgBitmap.isRecycled) {
+                    // ใช้ PDF ต้นฉบับจริงเป็นพื้น — ไม่ recreate เส้น/ข้อความ
+                    c.drawBitmap(
+                        bgBitmap,
+                        null,
+                        RectF(0f, 0f, tpl.pageW, tpl.pageH),
+                        Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+                    )
+                } else {
+                    // fallback เมื่อไม่มีไฟล์ต้นฉบับ
+                    drawBoxes(c, tpl)
+                    drawSegs(c, tpl)
+                    drawTexts(c, tpl)
+                }
             }
             drawValues(c, tpl, rec)
             c.restore()
             doc.finishPage(page)
         }
+
+        if (bgBitmap != null && !bgBitmap.isRecycled) bgBitmap.recycle()
+
         FileOutputStream(out).use { doc.writeTo(it) }
         doc.close()
         return out
+    }
+
+    /** แปลงหน้าแรกของ PDF ต้นฉบับเป็น Bitmap ความละเอียดสูง */
+    private fun renderBackground(path: String?, pageW: Int, pageH: Int): Bitmap? {
+        if (path.isNullOrBlank()) return null
+        val file = File(path)
+        if (!file.exists() || file.length() == 0L) return null
+        return runCatching {
+            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+                PdfRenderer(fd).use { renderer ->
+                    if (renderer.pageCount < 1) return@runCatching null
+                    renderer.openPage(0).use { page ->
+                        // ความละเอียด ~2x เพื่อความคมชัดเมื่อ scale
+                        val scale = 2f
+                        val w = (page.width * scale).toInt().coerceAtLeast(pageW).coerceAtMost(3000)
+                        val h = (page.height * scale).toInt().coerceAtLeast(pageH).coerceAtMost(4200)
+                        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                        bmp.eraseColor(Color.WHITE)
+                        page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        bmp
+                    }
+                }
+            }
+        }.getOrNull()
     }
 
     private fun drawBoxes(c: Canvas, t: FormTemplate) {
@@ -119,9 +168,11 @@ class TemplateRenderer(private val ctx: Context) {
                     val bmp = runCatching { BitmapFactory.decodeFile(path) }.getOrNull() ?: return@forEach
                     val sc = minOf(fw / bmp.width, fh / bmp.height)
                     val dw = bmp.width * sc; val dh = bmp.height * sc
-                    c.drawBitmap(bmp, null,
+                    c.drawBitmap(
+                        bmp, null,
                         RectF(fx + (fw - dw) / 2, fy + (fh - dh) / 2, fx + (fw + dw) / 2, fy + (fh + dh) / 2),
-                        Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG))
+                        Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+                    )
                     if (!bmp.isRecycled) bmp.recycle()
                 }
                 FieldKind.MULTILINE -> {
@@ -134,11 +185,13 @@ class TemplateRenderer(private val ctx: Context) {
                 }
                 else -> {
                     val v = rec.str(f.key).trim(); if (v.isEmpty()) return@forEach
-                    tp.textSize = f.fontSize; tp.textScaleX = 1f
-                    val maxW = fw - 4f
+                    tp.textSize = f.fontSize.coerceAtLeast(8f); tp.textScaleX = 1f
+                    val maxW = (fw - 4f).coerceAtLeast(20f)
                     val mw = tp.measureText(v)
-                    if (mw > maxW && maxW > 0) tp.textScaleX = (maxW / mw).coerceAtLeast(0.55f)
-                    c.drawText(v, fx + 2f, fy + fh * 0.78f, tp)
+                    if (mw > maxW) tp.textScaleX = (maxW / mw).coerceAtLeast(0.55f)
+                    // ถ้าฟิลด์ manual ที่ยังไม่มีตำแหน่งชัด วางใกล้หัวหน้า
+                    val drawY = if (fh > 1f) fy + fh * 0.78f else fy + f.fontSize
+                    c.drawText(v, fx + 2f, drawY, tp)
                 }
             }
         }
