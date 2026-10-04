@@ -157,7 +157,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                Surface(Modifier = Modifier.fillMaxSize()) {
+                Surface(Modifier.fillMaxSize()) {
                     Box(Modifier.fillMaxSize()) {
                         when {
                             dynamicMode -> {
