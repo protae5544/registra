@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Apartment
 import androidx.compose.material.icons.rounded.School
+import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -20,12 +21,10 @@ import androidx.compose.ui.unit.sp
 import com.chb.form.data.TemplateType
 import com.chb.form.ui.theme.*
 
-/**
- * หน้าเลือกเทมเพลตแบบฟอร์ม
- */
 @Composable
 fun TemplateSelectScreen(
-    onSelect: (TemplateType) -> Unit
+    onSelect: (TemplateType) -> Unit,
+    onImportPdf: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -37,79 +36,36 @@ fun TemplateSelectScreen(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            text = "เลือกแบบฟอร์ม",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            color = NeoBlack
-        )
+        Text("เลือกแบบฟอร์ม", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = NeoBlack)
         Spacer(Modifier.height(8.dp))
-        Text(
-            text = "เลือกประเภทเอกสารที่ต้องการกรอก",
-            style = MaterialTheme.typography.bodyMedium,
-            color = NeoMutedText
-        )
+        Text("เลือกเทมเพลตที่มี หรือนำเข้า PDF ใหม่", style = MaterialTheme.typography.bodyMedium, color = NeoMutedText)
         Spacer(Modifier.height(32.dp))
-
-        TemplateCard(
-            title = TemplateType.TRAINING.displayName,
-            subtitle = TemplateType.TRAINING.description,
-            icon = Icons.Rounded.School,
-            onClick = { onSelect(TemplateType.TRAINING) }
-        )
+        TemplateCard(TemplateType.TRAINING.displayName, TemplateType.TRAINING.description, Icons.Rounded.School) { onSelect(TemplateType.TRAINING) }
+        Spacer(Modifier.height(16.dp))
+        TemplateCard(TemplateType.DORMITORY.displayName, TemplateType.DORMITORY.description, Icons.Rounded.Apartment) { onSelect(TemplateType.DORMITORY) }
         Spacer(Modifier.height(16.dp))
         TemplateCard(
-            title = TemplateType.DORMITORY.displayName,
-            subtitle = TemplateType.DORMITORY.description,
-            icon = Icons.Rounded.Apartment,
-            onClick = { onSelect(TemplateType.DORMITORY) }
+            "นำเข้า PDF ฟอร์มใดก็ได้",
+            "สกัดข้อความ เส้น กรอบ และฟิลด์อัตโนมัติ — มีคำเตือนถ้าไม่ครบ ผู้ใช้แก้เองได้ก่อนสร้าง",
+            Icons.Rounded.UploadFile,
+            onImportPdf
         )
     }
 }
 
 @Composable
-private fun TemplateCard(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    onClick: () -> Unit
-) {
+private fun TemplateCard(title: String, subtitle: String, icon: ImageVector, onClick: () -> Unit) {
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .border(1.5.dp, NeoBorder, RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick),
-        color = CreamSurface,
-        shadowElevation = 2.dp
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).border(1.5.dp, NeoBorder, RoundedCornerShape(12.dp)).clickable(onClick = onClick),
+        color = CreamSurface, shadowElevation = 2.dp
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = PistachioDark,
-                modifier = Modifier.size(40.dp)
-            )
+        Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = PistachioDark, modifier = Modifier.size(40.dp))
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    color = NeoBlack
-                )
+                Text(title, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = NeoBlack)
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    text = subtitle,
-                    fontSize = 13.sp,
-                    color = NeoMutedText,
-                    lineHeight = 18.sp
-                )
+                Text(subtitle, fontSize = 13.sp, color = NeoMutedText, lineHeight = 18.sp)
             }
         }
     }
