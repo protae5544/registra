@@ -400,7 +400,7 @@
       rm.className = "warn";
       rm.textContent = "ลบ";
       rm.addEventListener("click", () => { history.splice(i, 1); renderHistory(); });
-      acts.appendChild(dl);
+      if (h.dataUrl) acts.appendChild(dl);
       acts.appendChild(rm);
       t.appendChild(pic); t.appendChild(meta); t.appendChild(acts);
       grid.appendChild(t);
@@ -802,7 +802,41 @@
   }
 
   /* ---------------- export ---------------- */
+  function androidBridge() {
+    return (typeof window !== "undefined" && window.ChbAndroid && typeof window.ChbAndroid.saveBase64 === "function")
+      ? window.ChbAndroid : null;
+  }
+  function dataUrlToParts(dataUrl) {
+    const s = String(dataUrl);
+    const i = s.indexOf(",");
+    if (s.indexOf("data:") !== 0 || i < 0) return null;
+    const head = s.slice(5, i); // เหนือ "data:" ถึง comma
+    if (!/;base64$/i.test(head)) return null;
+    const mime = head.replace(/;base64$/i, "").split(";")[0] || "application/octet-stream";
+    return { mime: mime, b64: s.slice(i + 1) };
+  }
+  function blobToDataUrl(blob) {
+    return new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(String(fr.result));
+      fr.onerror = () => rej(new Error("อ่านข้อมูลไฟล์ไม่ได้"));
+      fr.readAsDataURL(blob);
+    });
+  }
   function downloadDataUrl(dataUrl, name) {
+    // ในแอป Android (WebView): ส่งไฟล์ให้ ChbAndroid.saveBase64 บันทึก+แชร์
+    const bridge = androidBridge();
+    if (bridge && typeof dataUrl === "string" && dataUrl.indexOf("data:") === 0) {
+      const parts = dataUrlToParts(dataUrl);
+      if (parts) {
+        let res = "ok";
+        try { res = bridge.saveBase64(name, parts.b64, parts.mime); }
+        catch (err) { res = err && err.message ? err.message : "bridge error"; }
+        if (res === "ok") toast("บันทึกไฟล์แล้ว: " + name, "ok");
+        else toast("บันทึกไฟล์ไม่สำเร็จ: " + res, "err");
+        return;
+      }
+    }
     const a = document.createElement("a");
     a.href = dataUrl;
     a.download = name;
@@ -810,11 +844,20 @@
     a.click();
     a.remove();
   }
-  function downloadJson(obj, name) {
-    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+  function downloadBlob(blob, name) {
+    const bridge = androidBridge();
+    if (bridge) {
+      blobToDataUrl(blob)
+        .then((du) => downloadDataUrl(du, name))
+        .catch((err) => toast("บันทึกไฟล์ไม่สำเร็จ: " + err.message, "err"));
+      return;
+    }
     const url = URL.createObjectURL(blob);
     downloadDataUrl(url, name);
     setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+  function downloadJson(obj, name) {
+    downloadBlob(new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" }), name);
   }
 
   async function ensureFonts() {
@@ -888,12 +931,11 @@
       }
       if (all && !wasAll) { state.viewAll = false; renderPages(); }
       const name = all ? "overlay_all.pdf" : "overlay_page" + (state.pageIdx + 1) + ".pdf";
-      const dataUrl = doc.output("datauristring");
-      doc.save(name);
+      if (androidBridge()) downloadDataUrl(doc.output("datauristring"), name);
+      else doc.save(name);
       addHistory(name, null, null);
       toast("สร้าง PDF แล้ว (" + targets.length + " หน้า)", "ok");
       status("สร้าง PDF แล้ว: " + name, "ok");
-      void dataUrl;
     } catch (err) {
       console.error(err);
       state.viewAll = false;
@@ -914,6 +956,140 @@
     };
     downloadJson(obj, "overlay_layout.json");
     toast("Export layout แล้ว", "ok");
+  }
+
+  /* ---- Export HTML: ไฟล์ยืนยันตัวตนเปิดในเบราว์เซอร์แล้ว พิมพ์/บันทึกเป็น PDF ----
+     ใส่ทุก record × ทุกหน้า ค่ากรอกจริง พื้นหลัง/รูป/QR ฝังเป็น data URL ครบ ใช้เน็ตครั้งแรกที่เปิด (ฟอนต์) */
+  function qrDataUrlFor(text) {
+    if (typeof QRCode !== "function" || !text) return null;
+    const box = document.createElement("div");
+    box.style.cssText = "position:fixed;left:-99999px;top:0;width:220px;height:220px";
+    document.body.appendChild(box);
+    try {
+      new QRCode(box, { text: text, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
+      const cv = box.querySelector("canvas");
+      const u = cv && typeof cv.toDataURL === "function" ? cv.toDataURL("image/png") : null;
+      return u || null;
+    } catch (e) {
+      return null;
+    } finally {
+      box.remove();
+    }
+  }
+
+  function buildExportHtml() {
+    const bgs = state.pages.map((p) => (p.bg && p.bg.src ? p.bg.src : null));
+    const ars = state.pages.map((p) => (p.bg ? p.bg.w / p.bg.h : A4.w / A4.h));
+    const pageObjs = state.pages.map((p) => p.objects.map((o) => ({
+      id: o.id, t: o.type,
+      x: round(o.x, 3), y: round(o.y, 3), w: round(o.w, 3), h: round(o.h, 3),
+      r: o.rot || 0, k: o.key || "", tx: o.text || "", al: o.align || "left",
+      c: o.color || "#111111", fs: o.fs || 16, lh: o.lh || 1.05,
+      fit: o.fit || "contain", z: o.z || 1,
+      src: o.type === "image" && o.src ? o.src : ""
+    })));
+    const records = state.records.length ? state.records : [null];
+    const qr = {};
+    records.forEach((rec, ri) => {
+      pageObjs.forEach((objs) => objs.forEach((o) => {
+        if (o.t !== "qr") return;
+        const val = (rec && o.k && rec[o.k]) ? String(rec[o.k]) : o.tx;
+        const u = qrDataUrlFor(val);
+        if (u) qr[ri + "|" + o.id] = u;
+      }));
+    });
+    const payload = JSON.stringify({ bgs: bgs, ars: ars, pageObjs: pageObjs, records: records, qr: qr })
+      .replace(/</g, "\\u003c"); // กัน record มี </script> ทำ HTML พัง
+
+    return `<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>เทมเพลตเอกสาร</title>
+<style>
+@page{size:A4;margin:0}
+*{box-sizing:border-box}
+html,body{margin:0;background:#555;font-family:"THSarabunNew","Sarabun","Noto Sans Thai",system-ui,sans-serif}
+.bar{position:sticky;top:0;background:#0071e3;color:#fff;padding:10px 14px;display:flex;gap:12px;align-items:center;font-size:14px;z-index:9}
+.bar button{font:inherit;border:0;border-radius:8px;padding:8px 16px;background:#fff;color:#0071e3;font-weight:700;cursor:pointer}
+#out{padding:14px}
+.page{position:relative;width:794px;height:1123px;margin:0 auto 14px;background:#fff;overflow:hidden;box-shadow:0 4px 18px rgba(0,0,0,.4);page-break-after:always;break-after:page}
+.page:last-child{page-break-after:auto;break-after:auto}
+.page .bg{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;display:block}
+.o{position:absolute;display:flex;align-items:center;overflow:hidden;white-space:pre-wrap;word-break:break-word}
+.o.al-center{justify-content:center;text-align:center}
+.o.al-right{justify-content:flex-end;text-align:right}
+.o img{max-width:100%;max-height:100%;display:block}
+.o img.fit-contain{object-fit:contain}.o img.fit-cover{object-fit:cover}.o img.fit-fill{object-fit:fill}
+@media print{body{background:#fff}.bar{display:none}#out{padding:0}.page{margin:0;box-shadow:none}}
+</style>
+</head>
+<body>
+<div class="bar"><b>เทมเพลตเอกสาร</b><span id="count"></span><span style="flex:1"></span><button onclick="window.print()">พิมพ์ / บันทึกเป็น PDF</button></div>
+<div id="out"></div>
+<script>
+var D=${payload};
+function render(){
+  var out=document.getElementById("out");
+  var frag=document.createDocumentFragment();
+  var pages=0;
+  D.records.forEach(function(rec,ri){
+    D.pageObjs.forEach(function(objs,pi){
+      var page=document.createElement("div");
+      page.className="page";
+      page.style.height=Math.round(794/(D.ars[pi]||(794/1123)))+"px";
+      if(D.bgs[pi]){var bg=document.createElement("img");bg.className="bg";bg.src=D.bgs[pi];page.appendChild(bg);}
+      objs.forEach(function(o){
+        var el=document.createElement("div");
+        el.className="o al-"+(o.al||"left");
+        el.style.left=o.x+"%";el.style.top=o.y+"%";el.style.width=o.w+"%";el.style.height=o.h+"%";
+        el.style.transform="rotate("+(o.r||0)+"deg)";
+        el.style.color=o.c||"#111";el.style.zIndex=String(o.z||1);
+        if(o.t==="text"){el.style.fontSize=(o.fs||16)+"px";el.style.lineHeight=String(o.lh||1.05);}
+        if(o.t==="image"){
+          if(o.src){var im=document.createElement("img");im.className="fit-"+(o.fit||"contain");im.src=o.src;el.appendChild(im);}
+        }else if(o.t==="qr"){
+          var q=D.qr[ri+"|"+o.id];
+          if(q){var qi=document.createElement("img");qi.src=q;el.appendChild(qi);}
+        }else{
+          var val="";
+          if(o.k){val=(rec&&rec[o.k]!=null&&String(rec[o.k])!=="")?String(rec[o.k]):"";}
+          else{val=o.tx||"";}
+          if(val){var sp=document.createElement("span");sp.textContent=val;el.appendChild(sp);}
+        }
+        page.appendChild(el);
+      });
+      frag.appendChild(page);pages++;
+    });
+  });
+  out.appendChild(frag);
+  var rc=D.records.filter(function(r){return r;}).length;
+  document.getElementById("count").textContent=pages+" หน้า · "+rc+" records";
+}
+render();
+</script>
+</body>
+</html>
+`;
+  }
+
+  async function exportHtml() {
+    if (!state.pages.length) { toast("ยังไม่มีหน้าเอกสาร", "err"); return; }
+    loadShow("กำลังสร้าง HTML…");
+    try {
+      await ensureFonts();
+      const html = buildExportHtml();
+      const name = "template_" + new Date().toISOString().slice(0, 10) + ".html";
+      downloadBlob(new Blob([html], { type: "text/html;charset=utf-8" }), name);
+      toast("Export HTML แล้ว — เปิดไฟล์แล้วกด พิมพ์/บันทึกเป็น PDF", "ok");
+      status("Export HTML แล้ว: " + name + " (" + state.pages.length + " หน้า × " + state.records.length + " records)", "ok");
+    } catch (err) {
+      console.error(err);
+      toast("Export HTML ไม่สำเร็จ: " + err.message, "err");
+    } finally {
+      loadHide();
+    }
   }
 
   async function importLayout(file) {
@@ -1163,6 +1339,7 @@
     // export
     $("btnExportKeys").addEventListener("click", () => downloadJson(allKeys(), "keys.json"));
     $("btnExportLayout").addEventListener("click", exportLayout);
+    $("btnExportHtml").addEventListener("click", exportHtml);
     $("btnImportLayout").addEventListener("click", () => $("layoutFile").click());
     $("layoutFile").addEventListener("change", (e) => {
       const f = e.target.files[0];

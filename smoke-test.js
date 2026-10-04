@@ -203,6 +203,37 @@ async function run() {
   await new Promise((r) => setTimeout(r, 20));
   check("กลับมาหน้าแรก object ยังอยู่", $("sumObjects").textContent === before);
 
+  // 19) Export HTML สำหรับสร้าง PDF + bridge ของ Android (ChbAndroid.saveBase64)
+  const saved = [];
+  window.ChbAndroid = {
+    saveBase64: (n, b64, m) => { saved.push({ n: n, b64: b64, m: m }); return "ok"; }
+  };
+  click($("btnExportHtml"));
+  await new Promise((r) => setTimeout(r, 400));
+  check("Export HTML เรียก bridge 1 ครั้ง", saved.length === 1);
+  let htmlOut = "";
+  if (saved[0]) {
+    check("HTML: ชื่อไฟล์ .html + mime text/html", saved[0].n.endsWith(".html") && saved[0].m.startsWith("text/html"));
+    htmlOut = Buffer.from(saved[0].b64, "base64").toString("utf8");
+  }
+  check("HTML: ขึ้นต้นด้วย DOCTYPE", htmlOut.startsWith("<!DOCTYPE html>"));
+  check("HTML: มีค่า record (สมชาย) ฝังอยู่", htmlOut.includes("สมชาย"));
+  check("HTML: มี script render + ปุ่มพิมพ์/บันทึก PDF", htmlOut.includes("pageObjs") && htmlOut.includes("window.print()"));
+
+  // 20) PNG + PDF ผ่าน bridge (ในแอป WebView anchor download ใช้ไม่ได้)
+  saved.length = 0;
+  click($("btnPDFone"));
+  await new Promise((r) => setTimeout(r, 400));
+  check("PDF export ผ่าน bridge (mime application/pdf)",
+    saved.length === 1 && saved[0].n.endsWith(".pdf") && saved[0].m === "application/pdf");
+
+  saved.length = 0;
+  click($("btnPNG"));
+  await new Promise((r) => setTimeout(r, 400));
+  check("PNG export ผ่าน bridge (mime image/png)",
+    saved.length === 1 && saved[0].n.endsWith(".png") && saved[0].m === "image/png");
+  delete window.ChbAndroid;
+
   console.log("\n==== RESULT: " + pass + " passed, " + fail + " failed ====");
   process.exit(fail ? 1 : 0);
 }
