@@ -51,6 +51,17 @@ function check(name, cond) {
 function click(el) {
   el.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
 }
+// รอให้เงื่อนไขเป็นจริง (นำเข้าไฟล์เป็น async เพราะอ่าน file.text())
+async function waitFor(cond, ms) {
+  const limit = ms || 2000;
+  const t0 = Date.now();
+  while (Date.now() - t0 < limit) {
+    if (cond()) return true;
+    await new Promise((r) => setTimeout(r, 15));
+  }
+  return false;
+}
+const sumRecords = () => parseInt($("sumRecords").textContent, 10);
 
 async function run() {
   await new Promise((r) => setTimeout(r, 50));
@@ -233,6 +244,62 @@ async function run() {
   check("PNG export ผ่าน bridge (mime image/png)",
     saved.length === 1 && saved[0].n.endsWith(".png") && saved[0].m === "image/png");
   delete window.ChbAndroid;
+
+  // 21) นำเข้าข้อมูลหลายชุดใน session เดียว (เลือกได้หลายไฟล์)
+  const beforeImport = parseInt($("sumRecords").textContent, 10);
+  check("มี input jsonFile2 รองรับหลายไฟล์", $("jsonFile2").hasAttribute("multiple"));
+  check("มีปุ่มนำเข้าในแท็บ Fill", !!$("fillImportJson") && !!$("fillCount"));
+  const setFiles = (input, files) => {
+    Object.defineProperty(input, "files", { value: files, configurable: true });
+    input.dispatchEvent(new window.Event("change", { bubbles: true }));
+  };
+  const batch1 = new window.File([JSON.stringify([
+    { name: "บุญชัย", id: "B001" }, { name: "บุญชัย2", id: "B002" }
+  ])], "ชุดที่1.json", { type: "application/json" });
+  const batch2 = new window.File([JSON.stringify([
+    { name: "ศิริพร", id: "C001" }, { name: "มนัสนันท์", id: "C002" }, { name: "วิภา", id: "C003" }
+  ])], "ชุดที่2.json", { type: "application/json" });
+  setFiles($("jsonFile2"), [batch1, batch2]);
+  await waitFor(() => sumRecords() === beforeImport + 5);
+  check("รวมข้อมูล 2 ไฟล์เข้ากับของเดิม (2+2+3)", sumRecords() === beforeImport + 5);
+  check("record counter ชี้ที่ชุดล่าสุด",
+    $("recordCounter").textContent === "5/7" || $("recordCounter").textContent === "5/" + (beforeImport + 5));
+  check("fillCount สรุปจำนวนชุดใน session",
+    $("fillCount").textContent.includes(String(beforeImport + 5)));
+  check("jsonStatus บอกจำนวนชุดรวม",
+    $("jsonStatus").textContent.includes("รวมใน session"));
+
+  // 22) ไฟล์เสียถูกข้าม ไม่ทำให้ของที่โหลดแล้วหาย
+  const broken = new window.File(["{ ไม่ใช่ JSON"], "เสีย.json", { type: "application/json" });
+  setFiles($("jsonFile2"), [broken]);
+  await new Promise((r) => setTimeout(r, 200));
+  check("ไฟล์ JSON ผิดไม่ทำให้ชุดข้อมูลที่โหลดแล้วหาย", sumRecords() === beforeImport + 5);
+
+  // 23) รูปแบบ {records:[...]} ก็รับได้
+  const wrapped = new window.File([JSON.stringify({ records: [{ name: "ฟอร์แมต" }] })],
+    "wrapped.json", { type: "application/json" });
+  setFiles($("jsonFile2"), [wrapped]);
+  await waitFor(() => sumRecords() === beforeImport + 6);
+  check("รองรับ JSON รูปแบบ {records:[...]}", sumRecords() === beforeImport + 6);
+
+  // 23b) ทุกชุดที่นำเข้าใน session ต้องไหลไปถึงไฟล์ผลลัพธ์จริง
+  const savedBatches = [];
+  window.ChbAndroid = { saveBase64: (n, b64) => { savedBatches.push({ n: n, b64: b64 }); return "ok"; } };
+  click($("btnExportHtml"));
+  await new Promise((r) => setTimeout(r, 500));
+  const batchHtml = savedBatches.length
+    ? Buffer.from(savedBatches[0].b64, "base64").toString("utf8")
+    : "";
+  check("Export HTML มีข้อมูลครบทุกชุดที่นำเข้า",
+    ["บุญชัย", "วิภา", "ฟอร์แมต"].every((nm) => batchHtml.includes(nm)));
+  check("Export HTML ระบุจำนวน records ทั้งหมด",
+    batchHtml.includes(String(beforeImport + 6)));
+  delete window.ChbAndroid;
+
+  // 24) toolbar jsonFile = โหลดแทนทั้งหมด (replace) ไม่ใช่ต่อท้าย
+  setFiles($("jsonFile"), [new window.File([JSON.stringify([{ name: "คนเดียว" }])], "replace.json", { type: "application/json" })]);
+  await waitFor(() => sumRecords() === 1);
+  check("แถบ JSON บนสุดโหลดแทนทั้งหมด", $("sumRecords").textContent === "1");
 
   console.log("\n==== RESULT: " + pass + " passed, " + fail + " failed ====");
   process.exit(fail ? 1 : 0);

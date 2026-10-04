@@ -42,7 +42,7 @@
 <!-- ── JSON toolbar ── -->
 <div class="bar">
   <b>JSON</b>
-  <input type="file" id="jsonFile" accept=".json,application/json">
+  <input type="file" id="jsonFile" accept=".json,application/json" multiple>
   <button id="btnPasteLoad" type="button">Load Paste</button>
   <button id="btnClearJson" type="button" class="warn">Clear</button>
   <span id="jsonStatus" class="status muted">ยังไม่โหลด</span>
@@ -61,7 +61,7 @@
   <button id="btnPrev"  type="button" disabled>◀</button>
   <span id="recordCounter"><b>—/—</b></span>
   <button id="btnNext"  type="button" disabled>▶</button>
-  <button id="btnLast"  type="button" disabled>▶|</button>
+  <button id="btnLast" type="button" disabled>▶|</button>
   <span class="spacer"></span>
   <button id="btnSnap" type="button" class="snap-on">⊹ Snap ON</button>
   <button id="btnViewAll" type="button" class="view-all">☰ ทุกหน้า</button>
@@ -105,10 +105,17 @@
       </div>
     </div>
     <div class="card">
-      <div class="title">Paste JSON</div>
+      <div class="title">นำเข้าข้อมูล (JSON)</div>
       <div style="margin-top:8px">
         <textarea id="pasteJson" placeholder='[{"name":"สมชาย","id":"A001"}]'></textarea>
         <div style="margin-top:6px"><button id="btnPasteLoad2" type="button">Load JSON</button></div>
+        <div style="margin-top:6px">
+          <input type="file" id="jsonFile2" accept=".json,application/json" multiple>
+          <button id="btnLoadFileJson" type="button" class="link">โหลดไฟล์ JSON (เลือกได้หลายไฟล์)</button>
+        </div>
+        <div class="muted" style="font-size:11px;margin-top:6px">
+          เลือกได้หลายไฟล์ในครั้งเดียว — ทุกชุดข้อมูลจะถูกรวมเข้า session เดียวกัน (ต่อท้ายของเดิม)
+        </div>
       </div>
     </div>
     <div class="card">
@@ -187,6 +194,7 @@
       <!-- FILL PANE -->
       <div class="pane" data-pane="fill">
         <div class="title" style="margin-bottom:8px">กรอกข้อมูล <span id="fillRecNo" class="muted"></span></div>
+        <div id="fillCount" class="muted" style="font-size:12px;margin-bottom:8px">0 records</div>
         <div class="row" style="margin-bottom:8px">
           <button id="fillSample" type="button" class="add-btn">+ Record ตัวอย่าง</button>
           <button id="fillAdd" type="button">+ Record ว่าง</button>
@@ -194,6 +202,7 @@
           <button id="fillDel" type="button" class="warn">ลบ record</button>
         </div>
         <div class="row" style="margin-bottom:8px">
+          <button id="fillImportJson" type="button" class="primary">+ นำเข้าข้อมูลเพิ่ม (JSON)</button>
           <button id="fillExportKeys" type="button">Export Keys JSON</button>
           <button id="fillExportData" type="button">Export Data JSON</button>
         </div>

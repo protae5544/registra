@@ -277,6 +277,9 @@
     $("btnPgPrev").disabled = state.pageIdx <= 0;
     $("btnPgNext").disabled = state.pageIdx >= state.pages.length - 1;
     $("fillRecNo").textContent = state.records.length ? "(" + (state.recIdx + 1) + "/" + state.records.length + ")" : "(ยังไม่มี record)";
+    $("fillCount").textContent = state.records.length
+      ? state.records.length + " ชุดข้อมูลใน session นี้"
+      : "ยังไม่มีชุดข้อมูล — นำเข้า JSON หรือกด + Record";
     const rec = curRecord();
     $("recordPreview").textContent = rec ? JSON.stringify(rec, null, 2) : "ยังไม่มีข้อมูล";
   }
@@ -770,17 +773,58 @@
   }
 
   /* ---------------- records / JSON ---------------- */
-  function loadRecords(arr, srcLabel) {
-    if (!Array.isArray(arr)) throw new Error("JSON ต้องเป็น array เช่น [{...},{...}]");
-    const recs = arr.filter((r) => r && typeof r === "object" && !Array.isArray(r));
+  // รับทั้ง array ของ object, object เดี่ยว, และ {records:[...]} / {data:[...]} ที่ export มาจากที่อื่น
+  function normalizeRecords(arr) {
+    let src = arr;
+    if (!Array.isArray(src) && src && typeof src === "object") {
+      const k = ["records", "data", "rows", "items"].filter((x) => Array.isArray(src[x]))[0];
+      if (k) src = src[k];
+    }
+    if (!Array.isArray(src)) throw new Error("JSON ต้องเป็น array เช่น [{...},{...}]");
+    return src.filter((r) => r && typeof r === "object" && !Array.isArray(r));
+  }
+  // append: true = ต่อท้ายของเดิม (นำเข้าหลายชุดใน session เดียว), false = แทนทั้งหมด
+  function loadRecords(arr, srcLabel, append) {
+    const recs = normalizeRecords(arr);
     if (!recs.length) throw new Error("ไม่พบ record (object) ใน JSON");
-    state.records = recs;
-    state.recIdx = 0;
-    $("jsonStatus").textContent = "โหลดแล้ว " + recs.length + " records (" + (srcLabel || "") + ")";
+    if (append) {
+      state.records = state.records.concat(recs);
+      state.recIdx = state.records.length - recs.length; // ชี้ที่ชุดที่เพิ่งโหลด
+    } else {
+      state.records = recs;
+      state.recIdx = 0;
+    }
+    const label = srcLabel || "";
+    $("jsonStatus").textContent = "โหลดแล้ว " + recs.length + " records" + (label ? " (" + label + ")" : "")
+      + " · รวมใน session " + state.records.length + " ชุด";
     $("jsonStatus").className = "status ok";
     refreshAll();
     saveDraftSoon();
-    toast("โหลด " + recs.length + " records แล้ว", "ok");
+    toast("โหลด " + recs.length + " records (รวม " + state.records.length + " ชุด)", "ok");
+  }
+
+  // อ่านหลายไฟล์แล้วรวมเข้า session เดียว (ต่อท้ายของเดิม) — ไฟล์ไหนผิดจะข้ามแล้วรายงาน
+  async function loadRecordFiles(files, append) {
+    const list = Array.from(files || []).filter(Boolean);
+    if (!list.length) return;
+    let loaded = 0;
+    const errors = [];
+    for (const f of list) {
+      try {
+        loadRecords(JSON.parse(await f.text()), f.name, append);
+        loaded++;
+        append = true; // ไฟล์ถัดไปต่อท้ายชุดก่อนหน้า
+      } catch (err) {
+        errors.push(f.name + ": " + (err && err.message ? err.message : "อ่านไม่ได้"));
+      }
+    }
+    if (loaded) {
+      status("นำเข้า " + loaded + " ไฟล์ · รวม " + state.records.length + " ชุดข้อมูลใน session", "ok");
+      if (errors.length) toast("ข้ามไฟล์ที่ผิด " + errors.length + " ไฟล์: " + errors.join(" · "), "err");
+    } else {
+      toast("อ่าน JSON ไม่ได้เลย: " + errors.join(" · "), "err");
+      status("อ่าน JSON ไม่สำเร็จ: " + errors.join(" · "), "err");
+    }
   }
 
   function clearRecords() {
@@ -1181,18 +1225,23 @@ render();
     $("bgFile").addEventListener("change", (e) => { loadBgFiles(e.target.files); e.target.value = ""; });
     $("bgClear").addEventListener("click", clearBg);
 
-    // JSON
-    $("jsonFile").addEventListener("change", async (e) => {
-      const f = e.target.files[0];
+    // JSON — เลือกได้หลายไฟล์, รวมเข้า session เดียวกัน
+    $("jsonFile").addEventListener("change", (e) => {
+      const files = Array.from(e.target.files || []);
       e.target.value = "";
-      if (!f) return;
-      try { loadRecords(JSON.parse(await f.text()), f.name); }
-      catch (err) { toast("อ่าน JSON ไม่ได้: " + err.message, "err"); }
+      if (files.length) loadRecordFiles(files, false);
     });
+    $("jsonFile2").addEventListener("change", (e) => {
+      const files = Array.from(e.target.files || []);
+      e.target.value = "";
+      if (files.length) loadRecordFiles(files, true); // การ์ดฝั่งซ้าย = ต่อท้ายของเดิม
+    });
+    $("btnLoadFileJson").addEventListener("click", () => $("jsonFile2").click());
+    $("fillImportJson").addEventListener("click", () => $("jsonFile2").click());
     const loadPaste = () => {
       const txt = $("pasteJson").value.trim();
       if (!txt) { toast("วาง JSON ก่อน", "err"); return; }
-      try { loadRecords(JSON.parse(txt), "paste"); }
+      try { loadRecords(JSON.parse(txt), "paste", false); }
       catch (err) { toast("JSON ไม่ถูกต้อง: " + err.message, "err"); }
     };
     $("btnPasteLoad").addEventListener("click", loadPaste);
