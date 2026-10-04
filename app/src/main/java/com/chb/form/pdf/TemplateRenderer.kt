@@ -3,8 +3,6 @@ package com.chb.form.pdf
 import android.content.Context
 import android.graphics.*
 import android.graphics.pdf.PdfDocument
-import android.graphics.pdf.PdfRenderer
-import android.os.ParcelFileDescriptor
 import android.text.TextPaint
 import androidx.core.content.res.ResourcesCompat
 import com.chb.form.R
@@ -18,6 +16,12 @@ enum class PaperSize(val label: String, val wmm: Float, val hmm: Float) {
     A5("A5 · 148 × 210 มม.", 148f, 210f)
 }
 
+enum class BackgroundKind(val label: String) {
+    PDF("พื้น PDF"),
+    IMAGE("พื้นภาพ"),
+    NONE("เฉพาะข้อมูล")
+}
+
 class TemplateRenderer(private val ctx: Context) {
     private val face: Typeface =
         ResourcesCompat.getFont(ctx, R.font.sarabun_regular) ?: Typeface.DEFAULT
@@ -27,24 +31,15 @@ class TemplateRenderer(private val ctx: Context) {
         records: List<Record>,
         out: File,
         paper: PaperSize = PaperSize.SOURCE,
-        drawTemplate: Boolean = true
+        background: BackgroundKind = BackgroundKind.PDF
     ): File {
         out.parentFile?.mkdirs()
         val doc = PdfDocument()
-        val ptW: Int
-        val ptH: Int
-        if (paper == PaperSize.SOURCE) {
-            ptW = Math.round(tpl.pageW).coerceAtLeast(1)
-            ptH = Math.round(tpl.pageH).coerceAtLeast(1)
-        } else {
-            ptW = Math.round(paper.wmm / 25.4f * 72f)
-            ptH = Math.round(paper.hmm / 25.4f * 72f)
+        val (ptW, ptH) = BackgroundCapture.paperPoints(paper, tpl.pageW, tpl.pageH).let {
+            Math.round(it.first).coerceAtLeast(1) to Math.round(it.second).coerceAtLeast(1)
         }
 
-        // โหลดภาพพื้นหลังจาก PDF ต้นฉบับ (ถ้ามี) — สำคัญต่อการใช้งานจริง
-        val bgBitmap: Bitmap? = if (drawTemplate) {
-            renderBackground(tpl.backgroundPdfPath, Math.round(tpl.pageW), Math.round(tpl.pageH))
-        } else null
+        val bgBitmap: Bitmap? = loadBackground(tpl, background)
 
         val list = records.ifEmpty { listOf(Record()) }
         list.forEachIndexed { i, rec ->
@@ -56,17 +51,11 @@ class TemplateRenderer(private val ctx: Context) {
             c.translate((ptW - tpl.pageW * s) / 2f, (ptH - tpl.pageH * s) / 2f)
             c.scale(s, s)
 
-            if (drawTemplate) {
+            if (background != BackgroundKind.NONE) {
                 if (bgBitmap != null && !bgBitmap.isRecycled) {
-                    // ใช้ PDF ต้นฉบับจริงเป็นพื้น — ไม่ recreate เส้น/ข้อความ
-                    c.drawBitmap(
-                        bgBitmap,
-                        null,
-                        RectF(0f, 0f, tpl.pageW, tpl.pageH),
-                        Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
-                    )
+                    // normalize: contain ลงหน้าเทมเพลต ตามขนาดที่ set — ไม่ยืดภาพ
+                    BackgroundCapture.drawContained(c, bgBitmap, tpl.pageW, tpl.pageH)
                 } else {
-                    // fallback เมื่อไม่มีไฟล์ต้นฉบับ
                     drawBoxes(c, tpl)
                     drawSegs(c, tpl)
                     drawTexts(c, tpl)
@@ -84,28 +73,38 @@ class TemplateRenderer(private val ctx: Context) {
         return out
     }
 
-    /** แปลงหน้าแรกของ PDF ต้นฉบับเป็น Bitmap ความละเอียดสูง */
-    private fun renderBackground(path: String?, pageW: Int, pageH: Int): Bitmap? {
-        if (path.isNullOrBlank()) return null
-        val file = File(path)
-        if (!file.exists() || file.length() == 0L) return null
-        return runCatching {
-            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
-                PdfRenderer(fd).use { renderer ->
-                    if (renderer.pageCount < 1) return@runCatching null
-                    renderer.openPage(0).use { page ->
-                        // ความละเอียด ~2x เพื่อความคมชัดเมื่อ scale
-                        val scale = 2f
-                        val w = (page.width * scale).toInt().coerceAtLeast(pageW).coerceAtMost(3000)
-                        val h = (page.height * scale).toInt().coerceAtLeast(pageH).coerceAtMost(4200)
-                        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                        bmp.eraseColor(Color.WHITE)
-                        page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                        bmp
-                    }
-                }
+    /**
+     * พื้น PDF = raster จากไฟล์ต้นฉบับ
+     * พื้นภาพ = ภาพที่แคป/แนบ (JPEG) normalize contain ตามขนาดหน้า
+     *          ถ้ายังไม่มีภาพ ให้แคปจาก PDF หรือวาดเส้น/ข้อความเป็นภาพ
+     */
+    private fun loadBackground(tpl: FormTemplate, kind: BackgroundKind): Bitmap? {
+        val (cw, ch) = BackgroundCapture.capturePixels(tpl.pageW, tpl.pageH)
+        return when (kind) {
+            BackgroundKind.NONE -> null
+            BackgroundKind.PDF -> {
+                BackgroundCapture.rasterizePdf(tpl.backgroundPdfPath, cw, ch)
+                    ?: BackgroundCapture.loadFile(tpl.backgroundImagePath)
             }
-        }.getOrNull()
+            BackgroundKind.IMAGE -> {
+                BackgroundCapture.loadFile(tpl.backgroundImagePath)
+                    ?: BackgroundCapture.rasterizePdf(tpl.backgroundPdfPath, cw, ch)
+                    ?: captureReconstructed(tpl, cw, ch)
+            }
+        }
+    }
+
+    private fun captureReconstructed(t: FormTemplate, w: Int, h: Int): Bitmap {
+        val bmp = Bitmap.createBitmap(w.coerceAtLeast(1), h.coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        c.drawColor(Color.WHITE)
+        val s = minOf(w / t.pageW, h / t.pageH).coerceAtLeast(0.01f)
+        c.translate((w - t.pageW * s) / 2f, (h - t.pageH * s) / 2f)
+        c.scale(s, s)
+        drawBoxes(c, t)
+        drawSegs(c, t)
+        drawTexts(c, t)
+        return bmp
     }
 
     private fun drawBoxes(c: Canvas, t: FormTemplate) {

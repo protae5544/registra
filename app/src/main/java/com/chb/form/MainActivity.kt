@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
                                 busy = tplState.busy,
                                 warnings = tplState.warnings,
                                 onPdf = { templateVm.importPdf(it) },
+                                onImage = { templateVm.importImage(it) },
                                 onJson = { templateVm.importJson(it) },
                                 onContinue = { screen = "fill" }
                             )
@@ -72,7 +73,7 @@ class MainActivity : ComponentActivity() {
                                         recordCount = tplState.records.size,
                                         warnings = tplState.warnings,
                                         paper = tplState.paper,
-                                        withBackground = tplState.withBackground,
+                                        background = tplState.background,
                                         busy = tplState.busy,
                                         onChange = templateVm::set,
                                         onApproveField = { templateVm.approveField(it) },
@@ -84,6 +85,7 @@ class MainActivity : ComponentActivity() {
                                         onSelectRecord = templateVm::selectRecord,
                                         onPaper = templateVm::setPaper,
                                         onBackground = templateVm::setBackground,
+                                        onAttachImage = templateVm::attachBackgroundImage,
                                         onGenerate = {
                                             templateVm.approveAllFields()
                                             templateVm.generate()

@@ -7,6 +7,8 @@ import androidx.lifecycle.viewModelScope
 import com.chb.form.data.JsonIo
 import com.chb.form.importer.PdfImport
 import com.chb.form.model.*
+import com.chb.form.pdf.BackgroundCapture
+import com.chb.form.pdf.BackgroundKind
 import com.chb.form.pdf.PaperSize
 import com.chb.form.pdf.TemplateRenderer
 import kotlinx.coroutines.Dispatchers
@@ -28,7 +30,7 @@ data class TemplateUiState(
     val warnings: List<FormWarning> = emptyList(),
     val message: String? = null,
     val paper: PaperSize = PaperSize.SOURCE,
-    val withBackground: Boolean = true,
+    val background: BackgroundKind = BackgroundKind.PDF,
     val lastPdf: File? = null
 ) {
     val current: Record get() = records.getOrElse(index) { Record() }
@@ -69,6 +71,7 @@ class TemplateViewModel(app: Application) : AndroidViewModel(app) {
                     records = listOf(emptyRecord),
                     index = 0,
                     warnings = report.warnings,
+                    background = BackgroundKind.PDF,
                     message = if (fatal.isNotEmpty()) {
                         fatal.first().message
                     } else {
@@ -76,6 +79,73 @@ class TemplateViewModel(app: Application) : AndroidViewModel(app) {
                             if (report.warnings.isNotEmpty()) " · คำเตือน ${report.warnings.size}" else "" +
                             if (report.detectedFields == 0) " — เพิ่มฟิลด์เองได้ในหน้าถัดไป" else ""
                     }
+                )
+            }
+        }
+    }
+
+    fun importImage(uri: Uri) {
+        viewModelScope.launch {
+            _state.update { it.copy(busy = true, message = null) }
+            val paper = _state.value.paper
+            val report = withContext(Dispatchers.IO) {
+                runCatching { PdfImport.importImage(getApplication(), uri, paper) }.getOrElse { e ->
+                    PdfImport.Report(
+                        FormTemplate(id = "err", name = "error"), 0, 0, 0, 0, 0,
+                        listOf(FormWarning(WarningLevel.ERROR, "import", e.message ?: "import failed"))
+                    )
+                }
+            }
+            val fatal = report.warnings.filter {
+                it.level == WarningLevel.ERROR && it.code in setOf("open_fail", "copy_fail", "load_fail", "import")
+            }
+            val emptyRecord = Record(
+                id = UUID.randomUUID().toString().take(8),
+                values = report.template.fields.associate { it.key to "" }
+            )
+            _state.update {
+                it.copy(
+                    busy = false,
+                    template = report.template,
+                    report = report,
+                    records = listOf(emptyRecord),
+                    index = 0,
+                    warnings = report.warnings,
+                    background = BackgroundKind.IMAGE,
+                    message = if (fatal.isNotEmpty()) {
+                        fatal.first().message
+                    } else {
+                        "แนบภาพพื้นหลังแล้ว · หน้า ${report.template.pageW.toInt()}×${report.template.pageH.toInt()} pt — เพิ่มฟิลด์เองได้"
+                    }
+                )
+            }
+        }
+    }
+
+    /** แทนที่ภาพพื้นหลังของเทมเพลตปัจจุบัน โดยคงฟิลด์เดิม */
+    fun attachBackgroundImage(uri: Uri) {
+        viewModelScope.launch {
+            val tpl = _state.value.template ?: run {
+                importImage(uri); return@launch
+            }
+            _state.update { it.copy(busy = true, message = null) }
+            val path = withContext(Dispatchers.IO) {
+                val bmp = BackgroundCapture.decodeImage(getApplication(), uri) ?: return@withContext null
+                val dest = File(getApplication<Application>().filesDir, "templates/${tpl.id}_bg.jpg")
+                BackgroundCapture.saveJpeg(bmp, dest)
+                if (!bmp.isRecycled) bmp.recycle()
+                dest.takeIf { it.exists() }?.absolutePath
+            }
+            if (path == null) {
+                _state.update { it.copy(busy = false, message = "เปิดไฟล์ภาพไม่ได้") }
+                return@launch
+            }
+            _state.update {
+                it.copy(
+                    busy = false,
+                    template = tpl.copy(backgroundImagePath = path),
+                    background = BackgroundKind.IMAGE,
+                    message = "แนบภาพพื้นหลังแล้ว — จะ normalize ตามขนาดที่เลือกตอนสร้าง PDF"
                 )
             }
         }
@@ -196,14 +266,39 @@ class TemplateViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setPaper(p: PaperSize) = _state.update { it.copy(paper = p) }
-    fun setBackground(v: Boolean) = _state.update { it.copy(withBackground = v) }
+
+    fun setBackground(kind: BackgroundKind) {
+        _state.update { it.copy(background = kind) }
+        if (kind != BackgroundKind.IMAGE) return
+        val tpl = _state.value.template ?: return
+        if (!tpl.backgroundImagePath.isNullOrBlank()) return
+        val pdfPath = tpl.backgroundPdfPath ?: return
+        viewModelScope.launch {
+            val saved = withContext(Dispatchers.IO) {
+                val dest = File(getApplication<Application>().filesDir, "templates/${tpl.id}_bg.jpg")
+                BackgroundCapture.capturePdfToFile(pdfPath, dest, tpl.pageW, tpl.pageH)
+            }
+            if (saved != null) {
+                _state.update { cur ->
+                    val t = cur.template ?: return@update cur
+                    cur.copy(
+                        template = t.copy(backgroundImagePath = saved.absolutePath),
+                        message = "แคปพื้นหลังเป็นภาพตามขนาดหน้าแล้ว"
+                    )
+                }
+            }
+        }
+    }
 
     fun generate() {
         val st = _state.value
         val tpl = st.template ?: run {
             _state.update { it.copy(message = "ยังไม่มีเทมเพลต") }; return
         }
-        if (tpl.fields.isEmpty()) {
+        if (tpl.fields.isEmpty() &&
+            tpl.backgroundImagePath.isNullOrBlank() &&
+            tpl.backgroundPdfPath.isNullOrBlank()
+        ) {
             _state.update { it.copy(message = "ยังไม่มีฟิลด์ — กดเพิ่มฟิลด์ก่อนสร้าง PDF") }; return
         }
         // บล็อกเฉพาะฟิลด์บังคับว่าง — ไม่บล็อกจากคำเตือนนำเข้าอีกต่อไป
@@ -223,7 +318,7 @@ class TemplateViewModel(app: Application) : AndroidViewModel(app) {
                     val safeName = tpl.name.filter { it.isLetterOrDigit() || it == '_' || it == '-' }.ifBlank { "form" }
                     val dir = File(getApplication<Application>().filesDir, "export").apply { mkdirs() }
                     val out = File(dir, "${safeName}_$stamp.pdf")
-                    TemplateRenderer(getApplication()).render(tpl, st.records, out, st.paper, st.withBackground)
+                    TemplateRenderer(getApplication()).render(tpl, st.records, out, st.paper, st.background)
                 }.getOrElse { e ->
                     _state.update { it.copy(busy = false, message = "สร้าง PDF ไม่สำเร็จ: ${e.message}") }
                     null

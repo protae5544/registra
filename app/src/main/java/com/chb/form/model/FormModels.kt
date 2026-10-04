@@ -79,6 +79,7 @@ data class FormTemplate(
     val boxes: List<Box> = emptyList(),
     val fields: List<FieldSpec> = emptyList(),
     val backgroundPdfPath: String? = null,
+    val backgroundImagePath: String? = null,
     val builtinType: String? = null
 )
 

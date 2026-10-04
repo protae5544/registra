@@ -1,5 +1,8 @@
 package com.chb.form.ui
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -8,15 +11,20 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.chb.form.model.*
+import com.chb.form.pdf.BackgroundKind
 import com.chb.form.pdf.PaperSize
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -27,7 +35,7 @@ fun DynamicFormScreen(
     recordCount: Int,
     warnings: List<FormWarning>,
     paper: PaperSize,
-    withBackground: Boolean,
+    background: BackgroundKind,
     busy: Boolean,
     onChange: (String, String) -> Unit,
     onApproveField: (String) -> Unit,
@@ -38,12 +46,18 @@ fun DynamicFormScreen(
     onAddRecord: () -> Unit,
     onSelectRecord: (Int) -> Unit,
     onPaper: (PaperSize) -> Unit,
-    onBackground: (Boolean) -> Unit,
+    onBackground: (BackgroundKind) -> Unit,
+    onAttachImage: (Uri) -> Unit,
     onGenerate: () -> Unit,
     onBack: () -> Unit
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
     var newFieldLabel by remember { mutableStateOf("") }
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(onAttachImage)
+    }
+    val hasPdf = !template.backgroundPdfPath.isNullOrBlank()
+    val hasImage = !template.backgroundImagePath.isNullOrBlank()
 
     Scaffold(
         topBar = {
@@ -80,19 +94,35 @@ fun DynamicFormScreen(
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         FilterChip(
-                            selected = withBackground,
-                            onClick = { onBackground(!withBackground) },
-                            label = { Text(if (withBackground) "วาดพื้นฟอร์ม" else "เฉพาะข้อมูล") }
+                            selected = background == BackgroundKind.PDF,
+                            onClick = { onBackground(BackgroundKind.PDF) },
+                            enabled = hasPdf,
+                            label = { Text("พื้น PDF") }
                         )
+                        FilterChip(
+                            selected = background == BackgroundKind.IMAGE,
+                            onClick = { onBackground(BackgroundKind.IMAGE) },
+                            label = { Text("พื้นภาพ") }
+                        )
+                        FilterChip(
+                            selected = background == BackgroundKind.NONE,
+                            onClick = { onBackground(BackgroundKind.NONE) },
+                            label = { Text("เฉพาะข้อมูล") }
+                        )
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         var paperMenu by remember { mutableStateOf(false) }
                         Box {
                             FilterChip(
                                 selected = true,
                                 onClick = { paperMenu = true },
-                                label = { Text(paper.label.take(12)) }
+                                label = { Text(paper.label.take(16)) }
                             )
                             DropdownMenu(expanded = paperMenu, onDismissRequest = { paperMenu = false }) {
                                 PaperSize.entries.forEach { p ->
@@ -103,12 +133,20 @@ fun DynamicFormScreen(
                                 }
                             }
                         }
+                        OutlinedButton(
+                            onClick = { pickImage.launch(arrayOf("image/*")) },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Rounded.Image, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(if (hasImage) "เปลี่ยนภาพ" else "แนบภาพ")
+                        }
                         Spacer(Modifier.weight(1f))
                         TextButton(onClick = onApproveAll) { Text("อนุมัติทั้งหมด") }
                     }
                     Button(
                         onClick = onGenerate,
-                        enabled = !busy && template.fields.isNotEmpty(),
+                        enabled = !busy && (template.fields.isNotEmpty() || hasImage || hasPdf),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(Icons.Rounded.PictureAsPdf, null)
@@ -133,6 +171,31 @@ fun DynamicFormScreen(
             Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            if (hasImage) {
+                item {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("ภาพพื้นหลัง (normalize ตามขนาดที่เลือก)", fontWeight = FontWeight.SemiBold)
+                            AsyncImage(
+                                model = File(template.backgroundImagePath!!),
+                                contentDescription = "พื้นหลัง",
+                                modifier = Modifier.fillMaxWidth().height(160.dp),
+                                contentScale = ContentScale.Fit
+                            )
+                            Text(
+                                when (background) {
+                                    BackgroundKind.PDF -> "กำลังใช้ PDF ต้นฉบับเป็นพื้น"
+                                    BackgroundKind.IMAGE -> "กำลังใช้ภาพที่แคป/แนบเป็นพื้น"
+                                    BackgroundKind.NONE -> "ไม่วาดพื้น — เฉพาะข้อมูลที่กรอก"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
             if (warnings.isNotEmpty()) {
                 item { Text("คำเตือน", fontWeight = FontWeight.Bold) }
                 items(warnings) { w ->

@@ -3,6 +3,8 @@ package com.chb.form.importer
 import android.content.Context
 import android.net.Uri
 import com.chb.form.model.*
+import com.chb.form.pdf.BackgroundCapture
+import com.chb.form.pdf.PaperSize
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.interactive.form.*
 import java.io.File
@@ -69,11 +71,24 @@ object PdfImport {
                         "ตรวจพบฟิลด์โดยประมาณ ${detected.size} ช่อง — ควรตรวจและแก้ก่อนใช้งาน")
                 }
                 val name = (uri.lastPathSegment ?: "form").substringAfterLast('/').removeSuffix(".pdf").ifBlank { "form" }
+                val id = UUID.randomUUID().toString().take(8)
+                val imgFile = File(ctx.filesDir, "templates/${id}_bg.jpg")
+                val imgPath = BackgroundCapture.capturePdfToFile(local.absolutePath, imgFile, pw, ph)
+                    ?.absolutePath
+                if (imgPath == null) {
+                    warn += FormWarning(
+                        WarningLevel.INFO, "bg_capture",
+                        "แคปภาพพื้นหลังไม่สำเร็จ — จะใช้ PDF ต้นฉบับตอนสร้าง"
+                    )
+                }
                 val tpl = FormTemplate(
-                    id = UUID.randomUUID().toString().take(8),
+                    id = id,
                     name = name, pageW = pw, pageH = ph,
                     texts = ts.runs, segs = gs.segs.filter { it.length > 3f }, boxes = gs.boxes,
-                    fields = detected, backgroundPdfPath = local.absolutePath, builtinType = null
+                    fields = detected,
+                    backgroundPdfPath = local.absolutePath,
+                    backgroundImagePath = imgPath,
+                    builtinType = null
                 )
                 Report(tpl, ts.runs.size, tpl.segs.size, gs.boxes.size, acro.size, detected.size, warn)
             }
@@ -81,6 +96,44 @@ object PdfImport {
             warn += FormWarning(WarningLevel.ERROR, "load_fail", "โหลด PDF ไม่สำเร็จ: ${e.message}")
             emptyReport(warn)
         }
+    }
+
+    /** แนบไฟล์ภาพเป็นพื้นหลัง — normalize ตามขนาดกระดาษที่เลือก */
+    fun importImage(ctx: Context, uri: Uri, paper: PaperSize = PaperSize.A4): Report {
+        val warn = mutableListOf<FormWarning>()
+        val bmp = BackgroundCapture.decodeImage(ctx, uri)
+        if (bmp == null) {
+            warn += FormWarning(WarningLevel.ERROR, "open_fail", "เปิดไฟล์ภาพไม่ได้")
+            return emptyReport(warn)
+        }
+        val id = UUID.randomUUID().toString().take(8)
+        val (ptW, ptH) = if (paper == PaperSize.SOURCE) {
+            val dpi = BackgroundCapture.SOURCE_DPI
+            (bmp.width * 72f / dpi).coerceAtLeast(72f) to (bmp.height * 72f / dpi).coerceAtLeast(72f)
+        } else {
+            BackgroundCapture.paperPoints(paper, bmp.width.toFloat(), bmp.height.toFloat())
+        }
+        val imgFile = File(ctx.filesDir, "templates/${id}_bg.jpg").apply { parentFile?.mkdirs() }
+        BackgroundCapture.saveJpeg(bmp, imgFile)
+        if (!bmp.isRecycled) bmp.recycle()
+        val name = (uri.lastPathSegment ?: "image")
+            .substringAfterLast('/')
+            .substringBeforeLast('.')
+            .ifBlank { "image" }
+        warn += FormWarning(
+            WarningLevel.INFO, "image_bg",
+            "ใช้ภาพเป็นพื้นหลัง · หน้า ${ptW.toInt()}×${ptH.toInt()} pt — เพิ่มฟิลด์เองได้"
+        )
+        val tpl = FormTemplate(
+            id = id,
+            name = name,
+            pageW = ptW,
+            pageH = ptH,
+            backgroundImagePath = imgFile.absolutePath,
+            backgroundPdfPath = null,
+            fields = emptyList()
+        )
+        return Report(tpl, 0, 0, 0, 0, 0, warn)
     }
 
     private fun emptyReport(warn: List<FormWarning>) = Report(
