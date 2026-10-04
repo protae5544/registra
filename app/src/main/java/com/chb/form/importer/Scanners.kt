@@ -113,7 +113,7 @@ class GraphicsScanner(private val page: PDPage) : PDFGraphicsStreamEngine(page) 
     override fun endPath() { pts.clear() }
     override fun drawImage(pdImage: PDImage) {}
     override fun shadingFill(shadingName: COSName) {}
-    override fun clip(windingRule: Int) {}
+    override fun clip() {}
 
     fun scan() {
         processPage(page)
