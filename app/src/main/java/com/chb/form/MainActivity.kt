@@ -21,6 +21,9 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chb.form.data.DormFormData
 import com.chb.form.data.TemplateType
+import com.chb.form.model.BuiltinTemplates
+import com.chb.form.model.FormWarning
+import com.chb.form.model.WarningLevel
 import com.chb.form.ocr.ExtractedIdCard
 import com.chb.form.pdf.DormPdf
 import com.chb.form.ui.*
@@ -57,9 +60,12 @@ class MainActivity : ComponentActivity() {
                 var dormData by remember { mutableStateOf(DormFormData()) }
                 var dormBusy by remember { mutableStateOf(false) }
                 var dormPdfFile by remember { mutableStateOf<File?>(null) }
+                var dormReview by remember { mutableStateOf(false) }
+                var dormWarnings by remember { mutableStateOf<List<FormWarning>>(emptyList()) }
 
-                BackHandler(enabled = selectedTemplate != null || screen != Screen.Form) {
+                BackHandler(enabled = selectedTemplate != null || screen != Screen.Form || dormReview) {
                     when {
+                        dormReview -> dormReview = false
                         dormPdfFile != null -> dormPdfFile = null
                         selectedTemplate != null && screen != Screen.Form -> {
                             screen = when (screen) {
@@ -93,6 +99,76 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                fun buildDormWarnings(d: DormFormData): List<FormWarning> {
+                    val w = mutableListOf<FormWarning>()
+                    if (d.applicants.none { it.name.isNotBlank() }) {
+                        w += FormWarning(WarningLevel.ERROR, "no_applicant", "ต้องมีชื่อผู้ขออย่างน้อย 1 คน")
+                    }
+                    if (d.affiliationType == DormFormData.AffiliationType.NONE) {
+                        w += FormWarning(WarningLevel.WARN, "no_aff", "ยังไม่ได้เลือกสังกัดหน่วยงาน")
+                    }
+                    if (d.startDate.isBlank() || d.endDate.isBlank()) {
+                        w += FormWarning(WarningLevel.WARN, "no_dates", "ยังไม่มีวันที่เริ่ม/สิ้นสุดการพัก")
+                    }
+                    if (d.guarantorName.isBlank()) {
+                        w += FormWarning(WarningLevel.INFO, "no_guarantor", "ยังไม่มีชื่อผู้ค้ำ/ผู้รับรอง")
+                    }
+                    return w
+                }
+
+                fun dormToMap(d: DormFormData): Map<String, String> = mapOf(
+                    "applicant1_name" to d.applicants.getOrNull(0)?.name.orEmpty(),
+                    "applicant1_position" to d.applicants.getOrNull(0)?.position.orEmpty(),
+                    "applicant2_name" to d.applicants.getOrNull(1)?.name.orEmpty(),
+                    "applicant2_position" to d.applicants.getOrNull(1)?.position.orEmpty(),
+                    "applicant3_name" to d.applicants.getOrNull(2)?.name.orEmpty(),
+                    "applicant3_position" to d.applicants.getOrNull(2)?.position.orEmpty(),
+                    "affiliation" to d.affiliationType.name,
+                    "head_team_cn" to d.headOfTeamCn,
+                    "foreman_cn" to d.foremanCn,
+                    "head_team_contractor" to d.headOfTeamContractor,
+                    "supervisor" to d.supervisor,
+                    "contract_maker" to d.contractMaker,
+                    "other_affiliation" to d.otherAffiliation,
+                    "days" to d.days,
+                    "start_date" to d.startDate,
+                    "end_date" to d.endDate,
+                    "guarantor_name" to d.guarantorName,
+                    "guarantor_position" to d.guarantorPosition,
+                    "guarantor_company" to d.guarantorCompany,
+                    "sequence_no" to d.sequenceNo,
+                    "document_date" to d.documentDate
+                )
+
+                fun mapToDorm(m: Map<String, String>, base: DormFormData): DormFormData {
+                    fun s(k: String) = m[k].orEmpty()
+                    val aff = runCatching {
+                        DormFormData.AffiliationType.valueOf(s("affiliation").ifBlank { "NONE" })
+                    }.getOrDefault(DormFormData.AffiliationType.NONE)
+                    return base.copy(
+                        applicants = listOf(
+                            DormFormData.Applicant(s("applicant1_name"), s("applicant1_position")),
+                            DormFormData.Applicant(s("applicant2_name"), s("applicant2_position")),
+                            DormFormData.Applicant(s("applicant3_name"), s("applicant3_position"))
+                        ),
+                        affiliationType = aff,
+                        headOfTeamCn = s("head_team_cn"),
+                        foremanCn = s("foreman_cn"),
+                        headOfTeamContractor = s("head_team_contractor"),
+                        supervisor = s("supervisor"),
+                        contractMaker = s("contract_maker"),
+                        otherAffiliation = s("other_affiliation"),
+                        days = s("days"),
+                        startDate = s("start_date"),
+                        endDate = s("end_date"),
+                        guarantorName = s("guarantor_name"),
+                        guarantorPosition = s("guarantor_position"),
+                        guarantorCompany = s("guarantor_company"),
+                        sequenceNo = s("sequence_no"),
+                        documentDate = s("document_date")
+                    )
+                }
+
                 Surface(modifier = Modifier.fillMaxSize()) {
                     Box(Modifier.fillMaxSize()) {
                         when {
@@ -102,6 +178,7 @@ class MainActivity : ComponentActivity() {
                                         selectedTemplate = type
                                         screen = Screen.Form
                                         dormPdfFile = null
+                                        dormReview = false
                                     }
                                 )
                             }
@@ -165,43 +242,68 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                             selectedTemplate == TemplateType.DORMITORY -> {
-                                if (dormPdfFile != null) {
-                                    DormPdfResultScreen(
-                                        file = dormPdfFile!!,
-                                        onBackToForm = { dormPdfFile = null },
-                                        onClose = { dormPdfFile = null }
-                                    )
-                                } else {
-                                    DormFormScreen(
-                                        data = dormData,
-                                        onUpdate = { dormData = it },
-                                        onBack = { selectedTemplate = null },
-                                        onExport = {
-                                            scope.launch {
-                                                dormBusy = true
-                                                runCatching {
-                                                    withContext(Dispatchers.IO) {
-                                                        val stamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
-                                                        val name = dormData.applicants.firstOrNull { it.name.isNotBlank() }?.name
-                                                            ?.filter { it.isLetterOrDigit() || it.isWhitespace() }
-                                                            ?.trim()
-                                                            ?.replace(" ", "_")
-                                                            ?: "dorm"
-                                                        val outDir = File(filesDir, "export").apply { mkdirs() }
-                                                        val out = File(outDir, "DORM_${name}_$stamp.pdf")
-                                                        DormPdf(this@MainActivity).render(dormData, out)
-                                                        out
+                                when {
+                                    dormPdfFile != null -> {
+                                        DormPdfResultScreen(
+                                            file = dormPdfFile!!,
+                                            onBackToForm = { dormPdfFile = null },
+                                            onClose = { dormPdfFile = null }
+                                        )
+                                    }
+                                    dormReview -> {
+                                        FinalReviewScreen(
+                                            template = BuiltinTemplates.dormitory(),
+                                            initial = dormToMap(dormData),
+                                            warnings = dormWarnings,
+                                            onBack = { dormReview = false },
+                                            onConfirm = { edited ->
+                                                dormData = mapToDorm(edited, dormData)
+                                                dormReview = false
+                                                scope.launch {
+                                                    dormBusy = true
+                                                    runCatching {
+                                                        withContext(Dispatchers.IO) {
+                                                            val stamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
+                                                            val name = dormData.applicants.firstOrNull { it.name.isNotBlank() }?.name
+                                                                ?.filter { it.isLetterOrDigit() || it.isWhitespace() }
+                                                                ?.trim()
+                                                                ?.replace(" ", "_")
+                                                                ?: "dorm"
+                                                            val outDir = File(filesDir, "export").apply { mkdirs() }
+                                                            val out = File(outDir, "DORM_${name}_$stamp.pdf")
+                                                            DormPdf(this@MainActivity).render(dormData, out)
+                                                            out
+                                                        }
+                                                    }.onSuccess {
+                                                        dormPdfFile = it
+                                                        currentToast = ToastMessage(
+                                                            text = if (dormWarnings.isEmpty()) "สร้าง PDF สำเร็จ"
+                                                            else "สร้าง PDF สำเร็จ (มีคำเตือน ${dormWarnings.size} รายการ)",
+                                                            type = if (dormWarnings.any { w -> w.level == WarningLevel.ERROR })
+                                                                ToastType.WARNING else ToastType.SUCCESS
+                                                        )
+                                                    }.onFailure {
+                                                        currentToast = ToastMessage(
+                                                            text = it.message ?: "สร้าง PDF ไม่สำเร็จ",
+                                                            type = ToastType.WARNING
+                                                        )
                                                     }
-                                                }.onSuccess {
-                                                    dormPdfFile = it
-                                                    currentToast = ToastMessage(text = "สร้าง PDF สำเร็จ", type = ToastType.SUCCESS)
-                                                }.onFailure {
-                                                    currentToast = ToastMessage(text = it.message ?: "สร้าง PDF ไม่สำเร็จ", type = ToastType.WARNING)
+                                                    dormBusy = false
                                                 }
-                                                dormBusy = false
                                             }
-                                        }
-                                    )
+                                        )
+                                    }
+                                    else -> {
+                                        DormFormScreen(
+                                            data = dormData,
+                                            onUpdate = { dormData = it },
+                                            onBack = { selectedTemplate = null },
+                                            onExport = {
+                                                dormWarnings = buildDormWarnings(dormData)
+                                                dormReview = true
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
