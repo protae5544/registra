@@ -38,12 +38,15 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) {
                     templateVm.fileReady.collect { file ->
                         runCatching { PdfTools.share(this@MainActivity, file) }
-                        currentToast = ToastMessage("สร้าง PDF แล้ว — เปิดแชร์", ToastType.SUCCESS)
+                        currentToast = ToastMessage(
+                            text = "สร้าง PDF แล้ว — เปิดแชร์",
+                            type = ToastType.SUCCESS
+                        )
                     }
                 }
                 LaunchedEffect(tplState.message) {
-                    tplState.message?.let {
-                        currentToast = ToastMessage(it, ToastType.INFO)
+                    tplState.message?.let { msg ->
+                        currentToast = ToastMessage(text = msg, type = ToastType.INFO)
                         templateVm.clearMessage()
                     }
                 }
