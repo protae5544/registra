@@ -4,4 +4,6 @@
     <cache-path name="img" path="img/" />
     <files-path name="export" path="export/" />
     <files-path name="drafts" path="drafts/" />
+    <external-files-path name="ext_docs" path="Documents/" />
+    <external-files-path name="ext_export" path="Documents/export/" />
 </paths>
