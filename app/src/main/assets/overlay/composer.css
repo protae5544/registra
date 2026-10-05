@@ -142,6 +142,8 @@ button.view-all.active{background:#ffedc2;border-color:#e0b24a}
   background:#f7f8fa;border:1px solid var(--line2);border-radius:10px;padding:6px 8px}
 .coordbar select{min-height:34px;font-size:12px;padding:0 8px}
 .coordbar .mini{min-height:34px;padding:0 8px;font-size:12px}
+.coordbar input[type=number]{min-height:34px;font-size:12px;padding:0 6px;width:64px}
+.coordbar label{display:flex;align-items:center;gap:4px}
 #coordReadout{font-size:12px;font-variant-numeric:tabular-nums}
 
 /* ─────────── Fonts ─────────── */

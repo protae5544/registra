@@ -70,6 +70,7 @@
   <button class="add-btn" type="button" data-add="text">+Text</button>
   <button class="add-btn" type="button" data-add="image">+Image</button>
   <button class="add-btn" type="button" data-add="qr">+QR</button>
+  <button class="add-btn" type="button" data-add="stamp" title="เวลา/วันที่ตายตัวในเทมเพลต แต่อัปเดตเป็นเวลาปัจจุบันตอนพิมพ์">+Stamp</button>
   <button id="btnExportKeys" type="button">Export Keys</button>
   <button id="btnExportLayout" type="button">Export Layout</button>
   <button id="btnImportLayout" type="button">Import Layout</button>
@@ -93,10 +94,17 @@
       <div class="coordbar">
         <span id="coordReadout" class="muted">พิกัด: —</span>
         <span class="spacer"></span>
+        <select id="crossMode" title="โหมดเคอเซอร์: Trackpad = แตะไม่ย้ายเป้า เลื่อนนิ้วแบบสัมพัทธ์ (นิ้วไม่บังเป้า) / แตะ = วางเป้าที่จุดที่แตะ">
+          <option value="trackpad">เลื่อนสัมพัทธ์ (Trackpad)</option>
+          <option value="tap">แตะวางเป้า (Absolute)</option>
+        </select>
         <select id="crossAnchor" title="จุดยึดของเป้ากากบาท">
           <option value="tl">เป้าที่มุมซ้ายบน</option>
           <option value="c">เป้าที่กลางกล่อง</option>
         </select>
+        <label class="muted" style="font-size:11px">ความไว
+          <input id="crossGain" type="number" step="0.1" min="0.1" max="3" value="1" style="width:64px">
+        </label>
         <button id="crossNudgeL" type="button" class="mini" title="เลื่อนซ้าย 0.1%">◀.1</button>
         <button id="crossNudgeU" type="button" class="mini" title="เลื่อนขึ้น 0.1%">▲.1</button>
         <button id="crossNudgeD" type="button" class="mini" title="เลื่อนลง 0.1%">▼.1</button>
@@ -200,7 +208,41 @@
           <div class="grid2"><label>Key</label><input id="edKey" type="text" placeholder="ชื่อ key สำหรับกรอก"></div>
           <div class="grid2"><label>ข้อความ</label><input id="edText" type="text" placeholder="ค่าตัวอย่าง/placeholder"></div>
           <div class="grid2"><label>Type</label>
-            <select id="edType"><option value="text">text</option><option value="image">image</option><option value="qr">qr</option></select>
+            <select id="edType">
+              <option value="text">text</option>
+              <option value="image">image</option>
+              <option value="qr">qr</option>
+              <option value="stamp">stamp (เวลา/วันที่)</option>
+            </select>
+          </div>
+
+          <div id="stampbox" style="display:none;margin:8px 0;padding:10px;border:1px solid var(--line);border-radius:10px">
+            <div class="muted" style="font-size:11px;margin-bottom:6px">
+              Stamp = ค่าตายตัวที่ฝังอยู่ในเทมเพลต แต่คำนวณเป็น “เวลาปัจจุบัน” ใหม่ทุกครั้งที่เปิดไฟล์/พิมพ์
+            </div>
+            <div class="grid2"><label>แสดงอะไร</label>
+              <select id="edStampPart">
+                <option value="date">วันที่ (date)</option>
+                <option value="time">เวลา (time)</option>
+                <option value="datetime">วันที่ + เวลา</option>
+                <option value="month">เดือน + ปี</option>
+              </select>
+            </div>
+            <div class="grid2"><label>อิงเวลา</label>
+              <select id="edStampMode">
+                <option value="now">เวลาปัจจุบัน (อัปเดตอัตโนมัติ)</option>
+                <option value="base">วันที่ตายตัวในเทมเพลต</option>
+              </select>
+            </div>
+            <div class="grid2"><label>วันที่ตายตัว</label>
+              <input id="edStampBase" type="text" placeholder="YYYY-MM-DD">
+            </div>
+            <div class="grid2"><label>± เดือน</label>
+              <input id="edStampShift" type="number" step="1" min="-12" max="12">
+            </div>
+            <div class="muted" style="font-size:11px">
+              เลื่อนเดือนได้ −12…+12 (บวก = อนาคต, ลบ = อดีต) นับจากวันที่อิง · ดูตัวอย่าง: <b id="stampPreview">—</b>
+            </div>
           </div>
           <div class="grid2"><label>Align</label>
             <select id="edAlign"><option value="left">left</option><option value="center">center</option><option value="right">right</option></select>

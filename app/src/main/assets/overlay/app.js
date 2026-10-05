@@ -82,10 +82,14 @@
   function curRecord() { return state.records[state.recIdx] || null; }
   function objValue(o, rec) {
     if (o.key && rec && rec[o.key] != null && String(rec[o.key]) !== "") return String(rec[o.key]);
+    if (o.type === "stamp") return stampText(o);
     if (o.type === "qr") return o.text || "";
     return "";
   }
-  function placeholderFor(o) { return o.text || o.key || (o.type === "qr" ? "qr" : "ข้อความ"); }
+  function placeholderFor(o) {
+    if (o.type === "stamp") return stampText(o);
+    return o.text || o.key || (o.type === "qr" ? "qr" : "ข้อความ");
+  }
   function allKeys() {
     const set = [];
     state.pages.forEach((p) => p.objects.forEach((o) => {
@@ -94,6 +98,51 @@
     (curRecord() ? Object.keys(curRecord()) : []).forEach((k) => { if (set.indexOf(k) < 0) set.push(k); });
     state.records.forEach((r) => Object.keys(r || {}).forEach((k) => { if (set.indexOf(k) < 0) set.push(k); }));
     return set;
+  }
+
+  /* ---------------- stamp: element ตายตัวในเทมเพลต แต่คำนวณเป็นเวลาปัจจุบัน ----------------
+     ผู้ใช้เลือกได้ว่าจะแสดง date / time / date+time / เดือน+ปี และเลื่อนได้ -12..+12 เดือน
+     (บวก = อนาคต, ลบ = อดีต) อ้างอิงจากเวลาปัจจุบัน หรือจากวันที่ตายตัวที่ผู้ใช้กำหนดเอง */
+  const STAMP_PARTS = { date: 1, time: 1, datetime: 1, month: 1 };
+  function stampCfg(o) {
+    o = o || {};
+    const sh = parseInt(o.stampShift, 10);
+    return {
+      part: STAMP_PARTS[o.stampPart] ? o.stampPart : "datetime",
+      mode: o.stampMode === "base" ? "base" : "now",
+      base: typeof o.stampBase === "string" ? o.stampBase.trim() : "",
+      shift: isNaN(sh) ? 0 : clamp(sh, -12, 12)
+    };
+  }
+  function parseYmd(s) {
+    const m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(String(s || ""));
+    if (!m) return null;
+    const d = new Date(+m[1], +m[2] - 1, +m[3]);
+    if (isNaN(d.getTime()) || d.getMonth() !== +m[2] - 1 || d.getDate() !== +m[3]) return null;
+    return d;
+  }
+  function addMonths(d, n) {
+    const day = d.getDate();
+    const nd = new Date(d.getFullYear(), d.getMonth() + n, 1, d.getHours(), d.getMinutes(), d.getSeconds(), d.getMilliseconds());
+    nd.setDate(Math.min(day, new Date(nd.getFullYear(), nd.getMonth() + 1, 0).getDate()));
+    return nd;
+  }
+  function stampWhen(o, now) {
+    const c = stampCfg(o);
+    let d = c.mode === "base" ? parseYmd(c.base) : null;
+    if (!d) d = new Date(now == null ? Date.now() : now);
+    if (c.shift) d = addMonths(d, c.shift);
+    return d;
+  }
+  function stampText(o, now) {
+    const d = stampWhen(o, now);
+    const c = stampCfg(o);
+    const date = pad2(d.getDate()) + "/" + pad2(d.getMonth() + 1) + "/" + d.getFullYear();
+    const time = pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+    if (c.part === "date") return date;
+    if (c.part === "time") return time;
+    if (c.part === "month") return pad2(d.getMonth() + 1) + "/" + d.getFullYear();
+    return date + " " + time;
   }
 
   /* ---------------- fonts (ผู้ใช้แนบเอง — ฝังลงไฟล์ export) ---------------- */
@@ -353,7 +402,7 @@
       + "font-weight:" + (o.bold ? 700 : 400) + ";"
       + "font-style:" + (o.italic ? "italic" : "normal") + ";"
       + "letter-spacing:" + round((o.ls || 0) * s, 2) + "px;"
-      + (o.type === "text" ? "padding:0 4px;" : "")
+      + (o.type === "text" || o.type === "stamp" ? "padding:0 4px;" : "")
       + "white-space:pre-wrap;word-break:break-word;";
   }
   // ขนาดหน้าเป็นมิลลิเมตร (อิงสูง 297mm) เพื่อรายงานพิกัดแบบเดียวกับงานพิมพ์
@@ -474,6 +523,14 @@
       }
       return;
     }
+    // stamp — ค่าตายตัวในเทมเพลต แต่แสดงเป็นเวลาปัจจุบันเสมอ
+    if (o.type === "stamp") {
+      const s = document.createElement("span");
+      s.className = "stampval";
+      s.textContent = stampText(o);
+      content.appendChild(s);
+      return;
+    }
     // text
     const val = objValue(o, rec);
     const span = document.createElement("span");
@@ -541,7 +598,25 @@
     $("edBold").checked = !!o.bold;
     refreshFontSelectors();
     updateBoldNote();
+    renderStampEditor(o);
     renderCrosshair();
+  }
+
+  // แผงตั้งค่า stamp — แสดงเฉพาะตอนเลือก object ชนิด stamp
+  function renderStampEditor(o) {
+    const box = $("stampbox");
+    if (!box) return;
+    const on = !!(o && o.type === "stamp");
+    box.style.display = on ? "block" : "none";
+    if (!on) return;
+    const c = stampCfg(o);
+    $("edStampPart").value = c.part;
+    $("edStampMode").value = c.mode;
+    $("edStampBase").value = c.base;
+    $("edStampShift").value = c.shift;
+    $("edStampBase").disabled = c.mode !== "base";
+    const pv = $("stampPreview");
+    if (pv) pv.textContent = stampText(o);
   }
 
   // เตือนถ้าฟอนต์ที่เลือกไม่มีตัวหนาจริง (เรนเดอร์จะไม่หนาตามที่ตั้ง)
@@ -780,30 +855,67 @@
     e.preventDefault();
   }
 
+  /* โหมดเคอเซอร์ตามแนว VNC trackpad:
+     trackpad = แตะไม่ย้ายเป้า · ลากนิ้วแล้วเป้าขยับตาม "ระยะที่นิ้วเลื่อน" (delta ต่อเฟรม)
+               นิ้วจึงอยู่คนละตำแหน่งกับเป้า ไม่บังจุดที่กำลังกด
+     tap     = แตะที่ไหน เป้าก็ไปที่นั้นทันที (absolute) */
+  function crossMode() { return $("crossMode") ? $("crossMode").value : "trackpad"; }
+  function applyCrossMode(data) {
+    if (!data) return;
+    if ($("crossMode") && (data.crossMode === "trackpad" || data.crossMode === "tap")) $("crossMode").value = data.crossMode;
+    if ($("crossGain")) {
+      const g = parseFloat(data.crossGain);
+      if (!isNaN(g)) $("crossGain").value = String(clamp(g, 0.1, 3));
+    }
+  }
+  function crossGain() {
+    const g = parseFloat($("crossGain") ? $("crossGain").value : "1");
+    return isNaN(g) ? 1 : clamp(g, 0.1, 3);
+  }
   function crossPointerDown(e, pageEl) {
     const idx = +pageEl.dataset.idx;
     const rect = pageEl.getBoundingClientRect();
     if (idx !== state.pageIdx) { state.pageIdx = idx; state.sel = null; renderEditor(); renderCounters(); updateSelDom(); }
     const px = rect.width ? ((e.clientX - rect.left) / rect.width) * 100 : 50;
     const py = rect.height ? ((e.clientY - rect.top) / rect.height) * 100 : 50;
+    const x0 = state.crossPos ? state.crossPos.x : px;
+    const y0 = state.crossPos ? state.crossPos.y : py;
+    const absolute = crossMode() !== "trackpad";
     drag = {
-      mode: "cross", page: idx, pageEl: pageEl, rect: rect,
+      mode: "cross", page: idx, pageEl: pageEl, rect: rect, absolute: absolute,
       sx: e.clientX, sy: e.clientY,
-      ox: state.crossPos ? state.crossPos.x : px,
-      oy: state.crossPos ? state.crossPos.y : py,
+      lx: e.clientX, ly: e.clientY, // ตำแหน่งนิ้วเฟรมก่อนหน้า — ใช้คิด delta ต่อเฟรม
+      ox: x0, oy: y0, cx: x0, cy: y0,
       moved: false
     };
+    // โหมด absolute: วางเป้าที่จุดที่แตะทันที (เหมือน onAbsoluteClick)
+    if (absolute) {
+      const s = snapPoint(px, py, idx);
+      setCross(s.x, s.y);
+      status("วางเป้าที่ " + coordText(s.x, s.y, idx), "ok");
+    }
+    try { pageEl.setPointerCapture(e.pointerId); } catch (err) { /* ไม่รองรับ pointer capture */ }
     e.preventDefault();
   }
 
   function onPointerMove(e) {
     if (!drag) return;
     if (drag.mode === "cross") {
-      if (!drag.moved && Math.abs(e.clientX - drag.sx) < 3 && Math.abs(e.clientY - drag.sy) < 3) return;
+      const cx = e.clientX, cy = e.clientY;
+      if (!drag.moved && Math.abs(cx - drag.sx) < 3 && Math.abs(cy - drag.sy) < 3) return;
       drag.moved = true;
-      const dx = drag.rect.width ? ((e.clientX - drag.sx) / drag.rect.width) * 100 : 0;
-      const dy = drag.rect.height ? ((e.clientY - drag.sy) / drag.rect.height) * 100 : 0;
-      const s = snapPoint(drag.ox + dx, drag.oy + dy, drag.page);
+      let nx, ny;
+      if (drag.absolute) { // เดินตามตำแหน่งนิ้ว (ตำแหน่งสัมบูรณ์)
+        nx = drag.ox + (drag.rect.width ? ((cx - drag.sx) / drag.rect.width) * 100 : 0);
+        ny = drag.oy + (drag.rect.height ? ((cy - drag.sy) / drag.rect.height) * 100 : 0);
+      } else { // สัมพัทธ์: บวกระยะที่นิ้วเลื่อนในแต่ละเฟรม (dragAmount) ลงในตำแหน่งเป้าล่าสุด
+        const g = crossGain();
+        nx = drag.cx + (drag.rect.width ? ((cx - drag.lx) / drag.rect.width) * 100 * g : 0);
+        ny = drag.cy + (drag.rect.height ? ((cy - drag.ly) / drag.rect.height) * 100 * g : 0);
+        drag.lx = cx; drag.ly = cy;
+      }
+      const s = snapPoint(nx, ny, drag.page);
+      drag.cx = s.x; drag.cy = s.y;
       setCross(s.x, s.y);
       return;
     }
@@ -848,24 +960,19 @@
   function onPointerUp(e) {
     if (!drag) return;
     if (drag.mode === "cross") {
-      if (!drag.moved) {
-        // แตะสั้น = วางเป้าที่จุดที่แตะจริง
-        const rect = drag.rect;
-        const px = rect.width ? ((e.clientX - rect.left) / rect.width) * 100 : drag.ox;
-        const py = rect.height ? ((e.clientY - rect.top) / rect.height) * 100 : drag.oy;
-        const s = snapPoint(px, py, drag.page);
-        const pi = drag.page;
-        drag = null;
-        setCross(s.x, s.y);
-        drawGuides(null);
-        status("วางเป้าที่ " + coordText(s.x, s.y, pi), "ok");
-        saveDraftSoon();
-        return;
-      }
+      const moved = drag.moved;
+      const absolute = drag.absolute;
+      const pi = drag.page;
+      const fin = state.crossPos || { x: drag.cx, y: drag.cy };
       drag = null;
       drawGuides(null);
       saveDraftSoon();
-      status("เลื่อนเป้าด้วยการลาก (นิ้วอยู่คนละตำแหน่งกับเป้า)", "ok");
+      if (!moved) {
+        if (absolute) status("วางเป้าที่ " + coordText(fin.x, fin.y, pi), "ok");
+        else status("โหมด Trackpad — แตะไม่ย้ายเป้า · ลากนิ้วที่ใดก็ได้เพื่อเลื่อนเป้า", "ok");
+      } else {
+        status("เลื่อนเป้าแบบ" + (absolute ? "ตามนิ้ว" : "สัมพัทธ์ (นิ้วไม่บังเป้า)") + " → " + coordText(fin.x, fin.y, pi), "ok");
+      }
       return;
     }
     const el = document.querySelector('.obj[data-id="' + drag.id + '"]');
@@ -959,7 +1066,9 @@
         state.crossPos = o ? { x: round(o.x, 3), y: round(o.y, 3) } : { x: 50, y: 50 };
       }
       renderCrosshair();
-      toast("เป้ากากบาท ON — แตะวางเป้าที่จุดจริง แล้วเลื่อนนิ้วจากตำแหน่งอื่น", "ok");
+      toast("เป้ากากบาท ON — " + (crossMode() === "trackpad"
+        ? "โหมด Trackpad: ลากนิ้วที่ใดก็ได้ เป้าขยับตามระยะที่นิ้วเลื่อน (นิ้วไม่บังเป้า)"
+        : "โหมดแตะวาง: แตะที่ไหนเป้าก็ไปที่นั้น"), "ok");
     } else {
       renderCrosshair();
       toast("เป้ากากบาท OFF");
@@ -1062,6 +1171,11 @@
     if (type === "image") { base.w = 25; base.h = 25; base.y = 35; }
     if (type === "qr") { base.w = 16; base.h = 16; base.y = 60; base.text = "https://example.com"; base.lockAspect = true; base.key = "qr"; }
     if (type === "text") { base.text = "ข้อความ"; }
+    if (type === "stamp") {
+      base.w = 34; base.h = 5; base.y = 88; base.x = 12;
+      base.align = "left";
+      base.stampPart = "datetime"; base.stampMode = "now"; base.stampBase = ""; base.stampShift = 0;
+    }
     Object.assign(base, extra || {});
     // วางกึ่งกลางของหน้าในมุมมองปัจจุบัน
     base.x = round(clamp(50 - base.w / 2, 0, 90), 2);
@@ -1798,7 +1912,9 @@
       pageIdx: state.pageIdx,
       recIdx: state.recIdx,
       fonts: state.fonts,
-      defaultFamily: state.defaultFamily
+      defaultFamily: state.defaultFamily,
+      crossMode: crossMode(),
+      crossGain: crossGain()
     };
     downloadJson(obj, "overlay_layout.json");
     toast("Export layout แล้ว (รวมฟอนต์ที่แนบ)", "ok");
@@ -1836,7 +1952,8 @@
       id: o2.id, t: o2.type, k: o2.key || "", tx: o2.text || "",
       fit: o2.fit || "contain",
       box: objBoxCss(o2), oc: objContentCss(o2, 1),
-      src: o2.type === "image" && o2.src ? o2.src : ""
+      src: o2.type === "image" && o2.src ? o2.src : "",
+      sm: o2.type === "stamp" ? stampCfg(o2) : null
     })));
     const recs = [];
     const tv = {};
@@ -1853,7 +1970,14 @@
         }
       }));
     });
-    const payload = JSON.stringify({ bgs: bgs, ars: ars, pageObjs: pageObjs, pageList: pageList, recs: recs, tv: tv, qr: qr })
+    // ตัวเลือก “ติ้กรายการที่จะพิมพ์” + ชื่อไฟล์ ย้ายเข้าไปอยู่ในไฟล์ HTML นี้เลย
+    const prt = {
+      tpl: state.printNameTpl || "{n}_{key}",
+      key: state.printNameKey || "",
+      idx: recList.map((ri) => (ri < 0 ? 0 : ri + 1)),
+      on: recList.map((ri) => (ri < 0 ? true : !state.printOff[ri]))
+    };
+    const payload = JSON.stringify({ bgs: bgs, ars: ars, pageObjs: pageObjs, pageList: pageList, recs: recs, tv: tv, qr: qr, prt: prt })
       .replace(/</g, "\\u003c"); // กันข้อมูลมี </script> ทำ HTML พัง
 
     const ar0 = ars[pageList[0]] || (A4.w / A4.h);
@@ -1871,8 +1995,16 @@ ${fontFaceCss(embedded)}
 @page{size:${pageWmm}mm 297mm;margin:0}
 *{box-sizing:border-box}
 html,body{margin:0;background:#555;font-family:${FONT_FALLBACK}}
-.bar{position:sticky;top:0;background:#0071e3;color:#fff;padding:10px 14px;display:flex;gap:12px;align-items:center;font-size:14px;z-index:9}
+.bar{position:sticky;top:0;background:#0071e3;color:#fff;padding:10px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:14px}
+.topbar{position:sticky;top:0;z-index:9;box-shadow:0 2px 8px rgba(0,0,0,.25)}
 .bar button{font:inherit;border:0;border-radius:8px;padding:8px 16px;background:#fff;color:#0071e3;font-weight:700;cursor:pointer}
+.bar .nml{font-size:12px;opacity:.9}
+.bar input[type=text]{font:inherit;padding:6px 8px;border:0;border-radius:8px;width:150px}
+.selbar{background:#eef4fb;padding:8px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid #c9d7e8;font-size:13px;max-height:120px;overflow:auto}
+.selbar .prow{display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #c9d7e8;border-radius:999px;padding:4px 10px;cursor:pointer}
+.selbar .prow .idx{font-weight:700;color:#0071e3;font-size:11px}
+.selbar .prow .nm{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.selbar .prow.off{opacity:.45}
 #out{padding:14px}
 .page{position:relative;width:794px;height:1123px;margin:0 auto 14px;background:#fff;overflow:hidden;box-shadow:0 4px 18px rgba(0,0,0,.4);page-break-after:always;break-after:page}
 .page:last-child{page-break-after:auto;break-after:auto}
@@ -1880,21 +2012,72 @@ html,body{margin:0;background:#555;font-family:${FONT_FALLBACK}}
 .oc .ph{color:#9aa4ae;font-weight:400}
 .o img{max-width:100%;max-height:100%;display:block}
 .o img.fit-contain{object-fit:contain}.o img.fit-cover{object-fit:cover}.o img.fit-fill{object-fit:fill}
-@media print{body{background:#fff}.bar{display:none}#out{padding:0}.page{margin:0;box-shadow:none}}
+@media print{body{background:#fff}.topbar{display:none}#out{padding:0}.page{margin:0;box-shadow:none}}
 </style>
 </head>
 <body>
-<div class="bar"><b>เทมเพลตเอกสาร</b><span id="count"></span><span style="flex:1"></span><button onclick="window.print()">พิมพ์ / บันทึกเป็น PDF</button></div>
+<div class="topbar">
+<div class="bar">
+  <b>เทมเพลตเอกสาร</b>
+  <span id="count"></span>
+  <span class="nml">ชื่อไฟล์</span>
+  <input type="text" id="nmtpl" value="${prt.tpl.replace(/"/g, "&quot;")}" title="ใช้ {n} = ลำดับที่เลือก, {i} = index ชุดข้อมูล, {key} = ค่า key, {total} = จำนวนที่เลือก, {date} = วันที่วันนี้">
+  <button id="pAll" type="button">ติ้กทั้งหมด</button>
+  <button id="pNone" type="button">เอาติ้กทั้งหมด</button>
+  <button id="pPrint" type="button">พิมพ์เฉพาะที่ติ้ก</button>
+  <button id="pEach" type="button">พิมพ์ทีละชุด (แยกไฟล์)</button>
+</div>
+<div class="selbar" id="pList"></div>
+</div>
 <div id="out"></div>
 <script>
 var D=${payload};
-function render(){
+function pad2(n){return n<10?"0"+n:""+n;}
+/* stamp: ค่าตายตัวในเทมเพลต แต่คำนวณใหม่จากเวลาปัจจุบันทุกครั้งที่เรนเดอร์/พิมพ์ */
+function stampText(sm){
+  sm=sm||{};
+  var d=null, m;
+  if(sm.mode==="base"){m=/^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(String(sm.base||""));if(m)d=new Date(+m[1],+m[2]-1,+m[3]);}
+  if(!d)d=new Date();
+  var sh=parseInt(sm.shift,10);if(isNaN(sh))sh=0;if(sh>12)sh=12;if(sh<-12)sh=-12;
+  if(sh){var day=d.getDate();d=new Date(d.getFullYear(),d.getMonth()+sh,1);
+    d.setDate(Math.min(day,new Date(d.getFullYear(),d.getMonth()+1,0).getDate()));}
+  var date=pad2(d.getDate())+"/"+pad2(d.getMonth()+1)+"/"+d.getFullYear();
+  var time=pad2(d.getHours())+":"+pad2(d.getMinutes());
+  var p=sm.part||"datetime";
+  if(p==="date")return date;
+  if(p==="time")return time;
+  if(p==="month")return pad2(d.getMonth()+1)+"/"+d.getFullYear();
+  return date+" "+time;
+}
+/* ชื่อไฟล์ดาวน์โหลด: {n} = ลำดับที่เลือก {i} = index ชุดข้อมูล {key} {total} {date} */
+function nameFor(ri,pos,total){
+  var inp=document.getElementById("nmtpl");
+  var tpl=(inp&&inp.value)||D.prt.tpl||"{n}_{key}";
+  var rec=D.recs[ri]||{};
+  var key=D.prt.key||"";
+  var kv=(key&&rec[key]!=null&&String(rec[key])!=="")?String(rec[key]):"";
+  var d=new Date();
+  var out=String(tpl)
+    .replace(/\{n\}/g,pad2(pos))
+    .replace(/\{i\}/g,String(D.prt.idx[ri]))
+    .replace(/\{key\}/g,kv||("r"+D.prt.idx[ri]))
+    .replace(/\{total\}/g,String(total))
+    .replace(/\{date\}/g,d.getFullYear()+pad2(d.getMonth()+1)+pad2(d.getDate()));
+  return out.replace(/[\\\\/:*?"<>|\\r\\n\\t]+/g,"-").replace(/\\s+/g,"_")
+    .replace(/_+/g,"_").replace(/^[_\\-.]+|[_\\-.]+$/g,"").slice(0,80)||("template_"+d.getFullYear()+pad2(d.getMonth()+1)+pad2(d.getDate()));
+}
+function allIdx(){var r=[];for(var i=0;i<D.recs.length;i++)r.push(i);return r;}
+function checked(){var r=[],b=document.querySelectorAll("#pList input"),i;for(i=0;i<b.length;i++)if(b[i].checked)r.push(i);return r;}
+function render(list){
   var out=document.getElementById("out");
+  out.innerHTML="";
   var frag=document.createDocumentFragment();
   var pages=0;
-  D.recs.forEach(function(rec,ri){
+  list.forEach(function(ri){
     D.pageList.forEach(function(pi){
       var objs=D.pageObjs[pi]||[];
+      var rec=D.recs[ri];
       var page=document.createElement("div");
       page.className="page";
       page.style.height=Math.round(794/(D.ars[pi]||(794/1123)))+"px";
@@ -1911,6 +2094,11 @@ function render(){
           var sp=document.createElement("span");
           if(v){sp.textContent=v;}else{sp.textContent=o.tx||"";sp.className="ph";}
           oc.appendChild(sp);
+        }else if(o.t==="stamp"){
+          var st=document.createElement("span");
+          st.className="stampval";
+          st.textContent=stampText(o.sm);
+          oc.appendChild(st);
         }else if(o.t==="image"){
           if(o.src){var im=document.createElement("img");im.className="fit-"+(o.fit||"contain");im.src=o.src;oc.appendChild(im);}
         }else if(o.t==="qr"){
@@ -1924,10 +2112,87 @@ function render(){
     });
   });
   out.appendChild(frag);
-  var rc=D.recs.filter(function(r){return r;}).length;
-  document.getElementById("count").textContent=pages+" หน้า · "+rc+" ชุดข้อมูล";
+  var total=D.recs.length, ck=checked().length;
+  document.getElementById("count").textContent=total+" ชุดข้อมูล · ติ้ก "+ck+" ชุด · แสดง "+list.length+" ชุด / "+pages+" หน้า";
 }
-render();
+/* แถบติ้กรายการที่จะพิมพ์ — อยู่ในไฟล์นี้เลย เปิดแล้วเลือกได้ทันที */
+function renderSel(){
+  var host=document.getElementById("pList");
+  host.innerHTML="";
+  var lab=document.createElement("b");
+  lab.textContent="เลือกพิมพ์:";
+  host.appendChild(lab);
+  D.recs.forEach(function(rec,i){
+    var row=document.createElement("label");
+    row.className="prow";
+    var cb=document.createElement("input");
+    cb.type="checkbox";
+    cb.checked=!!D.prt.on[i];
+    var idx=document.createElement("span");
+    idx.className="idx";
+    idx.textContent="#"+D.prt.idx[i];
+    var nm=document.createElement("span");
+    nm.className="nm";
+    nm.textContent=nameFor(i,i+1,D.recs.length);
+    row.appendChild(cb);row.appendChild(idx);row.appendChild(nm);
+    row.addEventListener("click",function(){setTimeout(updateCount,0);});
+    host.appendChild(row);
+    row.dataset.i=String(i);
+  });
+  updateCount();
+}
+function updateCount(){
+  var ck=checked().length;
+  var p=document.getElementById("pPrint");
+  if(p)p.textContent="พิมพ์ "+ck+" ชุดที่ติ้ก";
+  document.querySelectorAll("#pList .prow").forEach(function(r){
+    r.classList.toggle("off",!r.querySelector("input").checked);
+  });
+  if(D.__last)document.getElementById("count").textContent=D.recs.length+" ชุดข้อมูล · ติ้ก "+ck+" ชุด";
+}
+/* พิมพ์เฉพาะที่ติ้ก — ตั้งชื่อไฟล์ดาวน์โหลดตาม index ที่เลือกก่อนสั่งพิมพ์ */
+var printing=false;
+function printSel(split){
+  var list=checked();
+  if(!list.length){alert("ติ้กชุดข้อมูลที่ต้องการพิมพ์ก่อน");return;}
+  printing=true;
+  D.__last=1;
+  if(!split){
+    render(list);
+    document.title=nameFor(list[0],1,list.length);
+    try{window.focus();window.print();}catch(e){}
+    setTimeout(function(){printing=false;document.title="เทมเพลตเอกสาร";render(allIdx());D.__last=0;},900);
+    return;
+  }
+  var i=0;
+  function next(){
+    if(i>=list.length){
+      printing=false;document.title="เทมเพลตเอกสาร";render(allIdx());D.__last=0;return;
+    }
+    render([list[i]]);
+    document.title=nameFor(list[i],i+1,list.length);
+    try{window.focus();window.print();}catch(e){}
+    i++;
+    setTimeout(next,1200);
+  }
+  next();
+}
+document.getElementById("pAll").addEventListener("click",function(){
+  document.querySelectorAll("#pList input").forEach(function(b){b.checked=true;});updateCount();
+});
+document.getElementById("pNone").addEventListener("click",function(){
+  document.querySelectorAll("#pList input").forEach(function(b){b.checked=false;});updateCount();
+});
+document.getElementById("pPrint").addEventListener("click",function(){printSel(false);});
+document.getElementById("pEach").addEventListener("click",function(){printSel(true);});
+// ถ้าผู้ใช้สั่งพิมพ์เองจากเมนูเบราว์เซอร์ ให้ใช้เฉพาะที่ติ้ก + คำนวณเวลาใหม่
+window.addEventListener("beforeprint",function(){
+  if(printing)return;
+  var list=checked();
+  render(list.length?list:allIdx());
+});
+renderSel();
+render(allIdx());
 </script>
 </body>
 </html>
@@ -1967,6 +2232,7 @@ render();
       state.recIdx = clamp(data.recIdx || 0, 0, Math.max(0, state.records.length - 1));
       state.sel = null;
       applyFontData(data);
+      applyCrossMode(data);
       printIndexes();
       renderPrint();
       refreshAll();
@@ -1995,6 +2261,8 @@ render();
       printOff: state.printOff,
       printNameKey: state.printNameKey,
       printNameTpl: state.printNameTpl,
+      crossMode: crossMode(),
+      crossGain: crossGain(),
       time: Date.now()
     };
     d.fonts = lite ? state.fonts.map((f) => Object.assign({}, f, { dataUrl: "" })) : state.fonts;
@@ -2042,6 +2310,7 @@ render();
       if (data.printOff) state.printOff = data.printOff;
       if (typeof data.printNameKey === "string") state.printNameKey = data.printNameKey;
       if (typeof data.printNameTpl === "string") state.printNameTpl = data.printNameTpl;
+      applyCrossMode(data);
       applyFontData(data);
       printIndexes();
       renderPrint();
@@ -2140,6 +2409,11 @@ render();
     // เป้ากากบาท (วางตำแหน่งแบบสัมพัทธ์)
     $("btnCross").addEventListener("click", () => toggleCross());
     $("crossAnchor").addEventListener("change", () => { applyCrossToObj(selected()); renderCrosshair(); });
+    $("crossMode").addEventListener("change", () => {
+      saveDraftSoon();
+      status("โหมดเคอเซอร์: " + (crossMode() === "trackpad" ? "เลื่อนสัมพัทธ์ (Trackpad)" : "แตะวางเป้า (Absolute)"), "ok");
+    });
+    $("crossGain").addEventListener("change", saveDraftSoon);
     $("crossNudgeL").addEventListener("click", () => nudgeCross(-0.1, 0));
     $("crossNudgeR").addEventListener("click", () => nudgeCross(0.1, 0));
     $("crossNudgeU").addEventListener("click", () => nudgeCross(0, -0.1));
@@ -2240,7 +2514,11 @@ render();
       edLetter: (o, v) => { o.ls = parseFloat(v) || 0; },
       edValign: (o, v) => { o.valign = v; },
       edFamily: (o, v) => { o.family = v; },
-      edRotation: (o, v) => { o.rot = clamp(parseFloat(v) || 0, -180, 180); }
+      edRotation: (o, v) => { o.rot = clamp(parseFloat(v) || 0, -180, 180); },
+      edStampPart: (o, v) => { o.stampPart = v; },
+      edStampMode: (o, v) => { o.stampMode = v; },
+      edStampBase: (o, v) => { o.stampBase = v.trim(); },
+      edStampShift: (o, v) => { o.stampShift = clamp(parseInt(v, 10) || 0, -12, 12); }
     };
     Object.keys(simple).forEach((id) => {
       $(id).addEventListener("change", () => {

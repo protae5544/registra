@@ -311,7 +311,7 @@ async function run() {
     probe.style.cssText = a;
     return probe.style.cssText === b;
   };
-  const payloadOf = (html) => JSON.parse(html.slice(html.indexOf("var D=") + 6, html.indexOf(";\nfunction render")));
+  const payloadOf = (html) => JSON.parse(html.slice(html.indexOf("var D=") + 6, html.indexOf(";\nfunction pad2")));
   const saveAs = (arr) => { window.ChbAndroid = { saveBase64: (n, b64) => { arr.push({ n: n, b64: b64 }); return "ok"; } }; };
   const dropBridge = () => { delete window.ChbAndroid; };
 
@@ -416,23 +416,46 @@ async function run() {
   wev("pointerup", { clientX: 100, clientY: 100 });
   click($("btnCross"));
   check("เปิดโหมดเป้ากากบาท", $("btnCross").className === "cross-on" && pageEl.classList.contains("cross-on"));
+  $("crossMode").value = "tap"; // โหมด absolute: แตะที่ไหนเป้าไปที่นั้น
+  $("crossMode").dispatchEvent(new window.Event("change", { bubbles: true }));
   ev(pageEl, "pointerdown", { clientX: 200, clientY: 300 });
   wev("pointerup", { clientX: 200, clientY: 300 });
   const cm = pageEl.querySelector(".crossLayer .cm");
   const exX = 200 / 794 * 100, exY = 300 / 1123 * 100;
-  check("แตะแล้วเป้ากากบาทอยู่ที่ตำแหน่งที่แตะ", !!cm && Math.abs(parseFloat(cm.style.left) - exX) < 0.05);
+  check("โหมด absolute: แตะแล้วเป้ากากบาทอยู่ที่ตำแหน่งที่แตะ", !!cm && Math.abs(parseFloat(cm.style.left) - exX) < 0.05);
   check("object เดินไปตามเป้าที่วาง", Math.abs(parseFloat($("edX").value) - exX) < 0.2 && Math.abs(parseFloat($("edY").value) - exY) < 0.2);
   check("พิกัดรายงานเป็น %/mm/px ครบ", /X [\d.]+% . [\d.]+mm . [\d.]+px\s+Y [\d.]+% . [\d.]+mm . [\d.]+px/.test($("coordReadout").textContent));
   click($("btnSnap")); // ปิด snap เพื่อให้ตัวเลขทดสอบเป็นค่าตามที่เลื่อนจริง
+  $("crossMode").value = "trackpad"; // โหมด trackpad ตามตัวอย่าง VNC: แตะไม่ย้ายเป้า
+  $("crossMode").dispatchEvent(new window.Event("change", { bubbles: true }));
+  const beforeTap = parseFloat($("edX").value);
+  ev(pageEl, "pointerdown", { clientX: 60, clientY: 60 });
+  wev("pointerup", { clientX: 60, clientY: 60 });
+  check("โหมด trackpad: แตะไม่ย้ายเป้า (นิ้วไม่บังตำแหน่ง)", Math.abs(parseFloat($("edX").value) - beforeTap) < 0.001);
+  // เลื่อนแบบสัมพัทธ์: เป้าขยับเท่ากับระยะที่นิ้วเลื่อนทุกเฟรม ไม่ใช่กระโดดไปหาตำแหน่งนิ้ว
   ev(pageEl, "pointerdown", { clientX: 600, clientY: 800 });
+  wev("pointermove", { clientX: 620, clientY: 830 });
   wev("pointermove", { clientX: 640, clientY: 860 });
   wev("pointerup", { clientX: 640, clientY: 860 });
   const nx = exX + (640 - 600) / 794 * 100, ny = exY + (860 - 800) / 1123 * 100;
-  check("เลื่อนนิ้วจากตำแหน่งอื่นแล้วเป้าเดินตามแบบสัมพัทธ์",
+  check("โหมด trackpad: ลากนิ้วแล้วเป้าเดินตามระยะที่นิ้วเลื่อน (สะสมทีละเฟรม)",
     Math.abs(parseFloat($("edX").value) - nx) < 0.02 && Math.abs(parseFloat($("edY").value) - ny) < 0.02);
   check("นิ้วอยู่คนละตำแหน่งกับเป้าจริง (ไม่บังตำแหน่ง)", 640 / 794 * 100 - parseFloat($("edX").value) > 20);
+  $("crossGain").value = "0.5";
+  $("crossGain").dispatchEvent(new window.Event("change", { bubbles: true }));
+  ev(pageEl, "pointerdown", { clientX: 100, clientY: 100 });
+  wev("pointermove", { clientX: 140, clientY: 100 });
+  wev("pointerup", { clientX: 140, clientY: 100 });
+  check("ปรับความไวของการเลื่อนสัมพัทธ์ได้ (0.5 = ครึ่งเดิม)",
+    Math.abs(parseFloat($("edX").value) - (nx + 40 / 794 * 100 * 0.5)) < 0.02);
+  $("crossGain").value = "1";
+  $("crossGain").dispatchEvent(new window.Event("change", { bubbles: true }));
+  ev(pageEl, "pointerdown", { clientX: 100, clientY: 100 });
+  wev("pointermove", { clientX: 140, clientY: 100 });
+  wev("pointerup", { clientX: 140, clientY: 100 });
+  const nx2 = parseFloat($("edX").value);
   click($("crossNudgeR"));
-  check("ขยับละเอียด 0.1% ได้", Math.abs(parseFloat($("edX").value) - (nx + 0.1)) < 0.02);
+  check("ขยับละเอียด 0.1% ได้", Math.abs(parseFloat($("edX").value) - (nx2 + 0.1)) < 0.02);
   click($("btnCross"));
   check("ปิดโหมดเป้ากากบาท", $("btnCross").className === "cross-off");
 
@@ -479,6 +502,102 @@ async function run() {
   await waitFor(() => saved30.length === 3);
   check("แยกไฟล์พิมพ์ได้ทีละชุดตามที่ติ้ก", saved30.length === 3);
   check("ชื่อไฟล์แยกเรียงตามลำดับที่จัด", saved30.map((s) => s.n).join(",") === "01_ก.html,02_ข.html,03_ค.html");
+  dropBridge();
+
+  // 31) stamp: element ตายตัวในเทมเพลต แต่คำนวณเป็นเวลาปัจจุบัน
+  click(document.querySelector('.tab[data-tab="edit"]'));
+  click(document.querySelector('[data-add="stamp"]'));
+  await new Promise((r) => setTimeout(r, 20));
+  const stampText = () => (document.querySelector('.obj[data-type="stamp"] .stampval') || {}).textContent || "";
+  check("+Stamp เพิ่ม element ชนิด stamp", document.querySelectorAll('.obj[data-type="stamp"]').length === 1);
+  check("แผงตั้งค่า stamp แสดงเฉพาะตอนเลือก object ชนิด stamp", $("stampbox").style.display === "block");
+  check("stamp แสดงวันที่+เวลาปัจจุบัน", /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/.test(stampText()));
+  const setStamp = async (id, v) => {
+    $(id).value = v;
+    $(id).dispatchEvent(new window.Event("change", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 10));
+  };
+  await setStamp("edStampPart", "date");
+  check("เลือกแสดงเฉพาะวันที่", /^\d{2}\/\d{2}\/\d{4}$/.test(stampText()));
+  await setStamp("edStampPart", "time");
+  check("เลือกแสดงเฉพาะเวลา", /^\d{2}:\d{2}$/.test(stampText()));
+  await setStamp("edStampPart", "month");
+  check("เลือกแสดงเดือน+ปี", /^\d{2}\/\d{4}$/.test(stampText()));
+  await setStamp("edStampPart", "date");
+  await setStamp("edStampMode", "base");
+  await setStamp("edStampBase", "2024-01-31");
+  check("อ้างวันที่ตายตัวในเทมเพลตได้", stampText() === "31/01/2024" && $("stampPreview").textContent === "31/01/2024");
+  await setStamp("edStampShift", "1");
+  check("เลื่อน +1 เดือน (อนาคต) และครอบจำนวนวันให้ถูกต้อง", stampText() === "29/02/2024");
+  await setStamp("edStampShift", "-2");
+  check("เลื่อน -2 เดือน (อดีต)", stampText() === "30/11/2023");
+  await setStamp("edStampMode", "now");
+  check("กลับมาอิงเวลาปัจจุบันแล้วคำนวณใหม่ทันที", /^\d{2}\/\d{2}\/\d{4}$/.test(stampText()));
+  await setStamp("edStampShift", "0");
+  const nowD = new Date();
+  const shiftTxt = (() => {
+    const d = new Date(nowD.getFullYear(), nowD.getMonth() + 1, 1);
+    d.setDate(Math.min(nowD.getDate(), new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+    return (d.getDate() < 10 ? "0" + d.getDate() : String(d.getDate())) + "/" + (d.getMonth() < 9 ? "0" : "") + (d.getMonth() + 1) + "/" + d.getFullYear();
+  })();
+  await setStamp("edStampShift", "1");
+  check("นับจากเวลาปัจจุบัน +1 เดือน", stampText() === shiftTxt);
+
+  // 32) ตัวเลือกสั่งพิมพ์ต้องอยู่ในไฟล์ template HTML จริง
+  let saved32 = [];
+  saveAs(saved32);
+  $("printScope").value = "all";
+  $("printScope").dispatchEvent(new window.Event("change", { bubbles: true }));
+  click($("btnExportHtml"));
+  await waitFor(() => saved32.length === 1);
+  const html32 = Buffer.from(saved32[0].b64, "base64").toString("utf8");
+  const D32 = payloadOf(html32);
+  const stampInFile = D32.pageObjs.flat().find((o) => o.t === "stamp");
+  check("ไฟล์ export เก็บค่าคงที่ของ stamp ไว้ครบ", !!stampInFile && stampInFile.sm
+    && stampInFile.sm.mode === "now" && stampInFile.sm.shift === 1 && stampInFile.sm.part === "date");
+  check("ไฟล์ export มีแถบเลือกรายการที่จะพิมพ์", html32.indexOf('id="pList"') >= 0 && html32.indexOf('id="pPrint"') >= 0
+    && html32.indexOf('id="pEach"') >= 0 && html32.indexOf('id="nmtpl"') >= 0 && html32.indexOf('id="pAll"') >= 0);
+  check("ไฟล์ export คำนวณ stamp ใหม่จากเวลาปัจจุบันตอนเปิด/พิมพ์", html32.indexOf("function stampText") >= 0);
+  check("ไฟล์ export ตั้งชื่อไฟล์ตาม index ที่เลือกได้", html32.indexOf("function nameFor") >= 0
+    && D32.prt && D32.prt.tpl === "{n}_{key}" && D32.prt.key === "name");
+
+  const dom32 = new JSDOM(html32, { runScripts: "dangerously", url: "http://localhost/" });
+  const w32 = dom32.window, d32 = w32.document;
+  const printed32 = [];
+  w32.print = () => printed32.push({ title: d32.title, pages: d32.querySelectorAll("#out .page").length });
+  let alerted32 = 0;
+  w32.alert = () => { alerted32++; };
+  await waitFor(() => d32.querySelectorAll("#pList .prow").length > 0, 4000);
+  const rows32 = Array.from(d32.querySelectorAll("#pList .prow"));
+  const boxes32 = rows32.map((r) => r.querySelector("input"));
+  check("แถบติ้กในไฟล์ export มีครบทุกชุดข้อมูล", rows32.length === D32.recs.length);
+  check("ชุดที่ถอดติ้กในแอปถูกส่งมาเป็น “ไม่ติ้ก” ในไฟล์ด้วย",
+    D32.prt.on.filter(Boolean).length === D32.prt.on.length - 1 && boxes32.filter((b) => !b.checked).length === 1);
+  check("แถบติ้กแสดงชื่อไฟล์ตาม template", rows32[0].querySelector(".nm").textContent.length > 1
+    && rows32[0].querySelector(".nm").textContent !== rows32[0].querySelector(".idx").textContent);
+  check("ช่องตั้งชื่อไฟล์ถูกส่งมาพร้อม", d32.getElementById("nmtpl").value === "{n}_{key}");
+  check("ปุ่มพิมพ์บอกจำนวนที่ติ้ก", d32.getElementById("pPrint").textContent.includes(String(boxes32.filter((b) => b.checked).length)));
+  // กดพิมพ์ -> พิมพ์เฉพาะที่ติ้ก และตั้งชื่อไฟล์ตาม index ที่เลือก
+  d32.getElementById("pPrint").dispatchEvent(new w32.MouseEvent("click", { bubbles: true }));
+  const want32 = boxes32.filter((b) => b.checked).length * D32.pageList.length;
+  check("กดพิมพ์แล้วพิมพ์เฉพาะชุดที่ติ้ก", printed32.length === 1 && printed32[0].pages === want32);
+  check("ชื่อไฟล์ดาวน์โหลดถูกตั้งตามลำดับที่เลือกก่อนพิมพ์", /^01_\S+$/.test(printed32[0].title));
+  // เอาติ้กทั้งหมดแล้วพิมพ์ -> ต้องเตือน ไม่ทำอะไร
+  d32.getElementById("pNone").dispatchEvent(new w32.MouseEvent("click", { bubbles: true }));
+  d32.getElementById("pPrint").dispatchEvent(new w32.MouseEvent("click", { bubbles: true }));
+  check("ไม่ติ้กเลยแล้วสั่งพิมพ์ = เตือนให้ติ้กก่อน", alerted32 === 1 && printed32.length === 1);
+  d32.getElementById("pAll").dispatchEvent(new w32.MouseEvent("click", { bubbles: true }));
+  check("ปุ่มติ้กทั้งหมด/เอาติ้กทั้งหมดใช้ได้", boxes32.every((b) => b.checked));
+  // พิมพ์ทีละชุด -> ได้ PDF แยก ชื่อตาม index
+  boxes32[0].checked = false;
+  boxes32[2].checked = false;
+  d32.getElementById("pEach").dispatchEvent(new w32.MouseEvent("click", { bubbles: true }));
+  await waitFor(() => printed32.length === 3, 6000);
+  check("พิมพ์ทีละชุดได้ไฟล์แยกตามที่ติ้ก", printed32.length === 3 && printed32.slice(1).every((p) => p.pages === D32.pageList.length));
+  check("ชื่อไฟล์แยกเรียงตาม index ที่ติ้กไว้", /^01_\S+$/.test(printed32[1].title) && /^02_\S+$/.test(printed32[2].title));
+  // stamp ในไฟล์ที่เปิดจริงต้องเป็นเวลาปัจจุบัน ไม่ใช่ค่าตายตัว
+  const stampNode = d32.querySelector('.o .stampval');
+  check("stamp ในไฟล์ export แสดงเป็นเวลาปัจจุบันจริง", !!stampNode && stampNode.textContent === shiftTxt);
   dropBridge();
 
   console.log("\n==== RESULT: " + pass + " passed, " + fail + " failed ====");
