@@ -52,6 +52,13 @@ function click(el) {
   el.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
 }
 // รอให้เงื่อนไขเป็นจริง (นำเข้าไฟล์เป็น async เพราะอ่าน file.text())
+// กดยืนยันในกล่องยืนยัน (การกระทำที่ย้อนกลับไม่ได้ ต้องถามก่อน)
+async function confirmYes() {
+  const open = $("confirmWrap").classList.contains("show");
+  click($("confirmOk"));
+  await new Promise((r) => setTimeout(r, 30));
+  return open;
+}
 async function waitFor(cond, ms) {
   const limit = ms || 2000;
   const t0 = Date.now();
@@ -103,6 +110,10 @@ async function run() {
   check("Duplicate เพิ่มเป็น 3 objects", $("sumObjects").textContent === "3");
   click($("btnDel"));
   await new Promise((r) => setTimeout(r, 20));
+  check("กดลบชิ้นงานแล้วขึ้นกล่องยืนยันก่อน", $("confirmWrap").classList.contains("show"));
+  await confirmYes();
+  check("ยืนยันแล้วชิ้นงานถูกลบ", $("sumObjects").textContent === "2");
+  check("กล่องยืนยันปิดหลังกดยืนยัน", !$("confirmWrap").classList.contains("show"));
   check("Delete ลดเหลือ 2 objects", $("sumObjects").textContent === "2");
 
   // 6) เพิ่ม/ลบหน้า (แสดงได้ทุกหน้า)
@@ -118,6 +129,8 @@ async function run() {
   check("ไปหน้า 2 อีกครั้ง", $("pageCounter").textContent === "2/2");
   click($("btnDelPage")); // ลบหน้าว่าง (หน้าปัจจุบัน)
   await new Promise((r) => setTimeout(r, 20));
+  check("กดลบหน้าแล้วขึ้นกล่องยืนยัน", $("confirmWrap").classList.contains("show"));
+  await confirmYes();
   check("ลบหน้า = 1 หน้า", document.querySelectorAll(".page").length === 1);
   check("object บนหน้าแรกยังอยู่หลังลบหน้า", $("sumObjects").textContent === "2");
 
@@ -170,6 +183,8 @@ async function run() {
   check("+ Record ตัวอย่าง เพิ่ม records", $("sumRecords").textContent === "3");
   click($("fillDel"));
   await new Promise((r) => setTimeout(r, 20));
+  check("กดลบชุดข้อมูลแล้วขึ้นกล่องยืนยัน", $("confirmWrap").classList.contains("show"));
+  await confirmYes();
   check("ลบ record ได้", $("sumRecords").textContent === "2");
 
   // 15) Export keys / layout ไม่ throw
@@ -634,6 +649,69 @@ async function run() {
     !!lo && lo.stampPart === "date" && lo.stampMode === "base" && lo.stampBase === "2024-01-31"
     && lo.stampShift === -3 && layout33.crossMode === "trackpad" && layout33.crossGain === 1);
   dropBridge();
+
+  // 34) กล่องยืนยัน: กดยกเลิก = ไม่เกิดการลบ
+  click($("btnClearHist"));
+  await new Promise((r) => setTimeout(r, 20));
+  check("ล้างประวัติก็ต้องยืนยัน", $("confirmWrap").classList.contains("show"));
+  click($("confirmCancel"));
+  await new Promise((r) => setTimeout(r, 20));
+  check("กดยกเลิกแล้วกล่องปิด", !$("confirmWrap").classList.contains("show"));
+
+  // 35) ตั้งค่าการส่งออก: สวิตฝังฟอนต์มีผลกับไฟล์จริง
+  const saved34 = [];
+  window.ChbAndroid = { saveBase64: (n, b64) => { saved34.push({ n: n, b64: b64 }); return "ok"; } };
+  const embedBox = $("expEmbedFonts");
+  check("มีสวิตฝังฟอนต์ + ช่องเตือน + ตัวเลือกความละเอียด PNG",
+    !!embedBox && !!$("expWarnFont") && !!$("expPngScale") && !!$("expNote"));
+  check("ความละเอียด PNG มาตรฐาน = 2×", $("expPngScale").value === "2");
+
+  saved34.length = 0;
+  click($("btnExportHtml"));
+  await waitFor(() => saved34.length === 1, 4000);
+  const htmlOn = Buffer.from(saved34[0].b64, "base64").toString("utf8");
+  check("เปิดฝังฟอนต์ -> ไฟล์ export มี @font-face", htmlOn.indexOf("@font-face") >= 0);
+
+  embedBox.checked = false;
+  embedBox.dispatchEvent(new window.Event("change", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  check("ปิดฝังฟอนต์ -> ช่องบอกสถานะเปลี่ยนเป็นคำเตือน",
+    $("expNote").className.indexOf("warn") >= 0 && $("expNote").textContent.indexOf("ปิดการฝังฟอนต์") >= 0);
+
+  saved34.length = 0;
+  click($("btnExportHtml"));
+  await waitFor(() => saved34.length === 1, 4000);
+  const htmlOff = Buffer.from(saved34[0].b64, "base64").toString("utf8");
+  check("ปิดฝังฟอนต์ -> ไฟล์ export ไม่มี @font-face", htmlOff.indexOf("@font-face") < 0);
+
+  embedBox.checked = true;
+  embedBox.dispatchEvent(new window.Event("change", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  saved34.length = 0;
+  delete window.ChbAndroid;
+
+  // 36) แผงจูนเป้ากากบาทยุบ/ขยายได้
+  const panel = $("crossPanel"), pbtn = $("btnCrossPanel");
+  check("แผงจูนเป้ากากบาทซ่อนเป็นค่าเริ่มต้น", !panel.classList.contains("open"));
+  click(pbtn);
+  await new Promise((r) => setTimeout(r, 20));
+  check("กดปุ่มจูนแล้วแผงเปิด + ปุ่มบอกสถานะถูกต้อง",
+    panel.classList.contains("open") && pbtn.getAttribute("aria-expanded") === "true");
+  click(pbtn);
+  await new Promise((r) => setTimeout(r, 20));
+  check("กดซ้ำแล้วแผงปิด", !panel.classList.contains("open"));
+
+  // 37) ซ่อนกลุ่มตั้งค่าที่ใช้กับชนิดนี้ไม่ได้
+  $("edType").value = "qr";
+  $("edType").dispatchEvent(new window.Event("change", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 30));
+  check("เลือกชนิด QR -> ซ่อนกลุ่มตัวอักษร", $("grpText").style.display === "none");
+  check("เลือกชนิด QR -> ซ่อนกลุ่มรูปภาพ", $("grpImage").style.display === "none");
+  $("edType").value = "text";
+  $("edType").dispatchEvent(new window.Event("change", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 30));
+  check("เลือกชนิดข้อความ -> กลับมาแสดงกลุ่มตัวอักษร", $("grpText").style.display !== "none");
+  check("เลือกชนิดข้อความ -> ยังซ่อนกลุ่มรูปภาพ", $("grpImage").style.display === "none");
 
   console.log("\n==== RESULT: " + pass + " passed, " + fail + " failed ====");
   process.exit(fail ? 1 : 0);

@@ -34,7 +34,9 @@
     printOff: {}, // {recIndex:true} = ไม่เอาพิมพ์ชุดนี้
     printNameKey: "",
     printNameTpl: "{n}_{key}",
-    printScope: "all"
+    printScope: "all",
+    // ตั้งค่าการส่งออก
+    exp: { embed: true, warnFont: true, pngScale: 2 }
   };
   let history = []; // {name, time, thumb, dataUrl}
   let pendingImageAdd = null; // callback สำหรับเลือกรูปเพิ่มเป็น object
@@ -46,7 +48,38 @@
     t.textContent = msg;
     t.className = (cls || "") + " show";
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { t.className = ""; }, 2400);
+    toastTimer = setTimeout(() => { t.className = ""; }, cls === "err" ? 4200 : 2800);
+  }
+
+  /* ---------------- กล่องยืนยัน ----------------
+     ใช้ก่อนการกระทำที่ย้อนกลับไม่ได้ เช่น ลบหน้า/ลบชิ้นงาน/ลบชุดข้อมูล/ล้างประวัติ
+     คืนค่าเป็น Promise<boolean> — ถ้าผู้ใช้กดยกเลิกจะได้ false */
+  let confirmSeq = 0;
+  function ask(title, text, okText) {
+    const wrap = $("confirmWrap");
+    if (!wrap) return Promise.resolve(window.confirm(title + "\n" + text));
+    $("confirmTitle").textContent = title;
+    $("confirmText").textContent = text;
+    $("confirmOk").textContent = okText || "ลบ";
+    wrap.classList.add("show");
+    const seq = ++confirmSeq;
+    return new Promise((resolve) => {
+      const done = (val) => {
+        if (seq !== confirmSeq) return;
+        confirmSeq++;
+        wrap.classList.remove("show");
+        $("confirmOk").removeEventListener("click", ok);
+        $("confirmCancel").removeEventListener("click", cancel);
+        document.removeEventListener("keydown", esc);
+        resolve(val);
+      };
+      const ok = () => done(true);
+      const cancel = () => done(false);
+      const esc = (e) => { if (e.key === "Escape") cancel(); };
+      $("confirmOk").addEventListener("click", ok);
+      $("confirmCancel").addEventListener("click", cancel);
+      document.addEventListener("keydown", esc);
+    });
   }
   function status(msg, cls) {
     const el = $("opStatus");
@@ -196,10 +229,19 @@
   }
   // ฟอนต์ที่ต้องฝังลงไฟล์ export: ตัวที่ติ้กไว้ + ตัวที่ object ใช้จริง
   function fontsToEmbed() {
+    if (!state.exp.embed) return [];
     const need = [];
     state.pages.forEach((p) => p.objects.forEach((o) => { const f = familyOf(o); if (f) need.push(f); }));
     if (state.defaultFamily) need.push(state.defaultFamily);
     return state.fonts.filter((f) => f.embed || need.indexOf(f.family) >= 0);
+  }
+  // ฟอนต์ที่ถูกใช้งานจริง แต่ไม่ได้อยู่ในรายการที่จะฝังลงไฟล์
+  function fontsMissingFromExport() {
+    const all = fontsToEmbed().map((f) => f.family);
+    const used = [];
+    state.pages.forEach((p) => p.objects.forEach((o) => { const f = familyOf(o); if (f) used.push(f); }));
+    if (state.defaultFamily) used.push(state.defaultFamily);
+    return used.filter((f, i) => all.indexOf(f) < 0 && used.indexOf(f) === i);
   }
   function fontFaceCss(list) {
     return (list || fontsToEmbed()).map((f) => "@font-face{font-family:\"" + cssEsc(f.family) + "\";src:url("
@@ -277,6 +319,15 @@
   }
 
   function clearFonts() {
+    if (!state.fonts.length) { toast("ยังไม่มีฟอนต์ที่แนบ"); return; }
+    const n = state.fonts.length;
+    ask("ลบฟอนต์ที่แนบทั้งหมด?", "ฟอนต์ " + n + " ตัวจะถูกถอดออกจากงานนี้ และไฟล์ที่เคยบันทึกไว้จะยังมีฟอนต์อยู่", "ลบทั้งหมด").then((yes) => {
+      if (!yes) return;
+      doClearFonts();
+      toast("ลบฟอนต์ที่แนบแล้ว", "ok");
+    });
+  }
+  function doClearFonts() {
     state.fonts = [];
     state.defaultFamily = "";
     syncFontFace();
@@ -286,7 +337,6 @@
     saveDraftSoon();
     $("fontStatus").textContent = "ยังไม่มีฟอนต์ที่แนบ";
     $("fontStatus").className = "status muted";
-    toast("ลบฟอนต์ที่แนบทั้งหมดแล้ว");
   }
 
   function renderFonts() {
@@ -608,6 +658,11 @@
     if (!box) return;
     const on = !!(o && o.type === "stamp");
     box.style.display = on ? "block" : "none";
+    // ซ่อนกลุ่มที่ใช้ไม่ได้กับชนิดนี้ เพื่อไม่ให้ผู้ใช้ตั้งค่าแล้วไม่มีผล
+    const isText = !o || o.type === "text" || o.type === "stamp";
+    const gText = $("grpText"), gImg = $("grpImage");
+    if (gText) gText.style.display = isText ? "" : "none";
+    if (gImg) gImg.style.display = o && o.type === "image" ? "" : "none";
     if (!on) return;
     const c = stampCfg(o);
     $("edStampPart").value = c.part;
@@ -813,6 +868,38 @@
     renderFields();
     renderFill();
     renderPrint();
+    renderExp();
+  }
+
+  /* ---------------- ตั้งค่าการส่งออก ---------------- */
+  function renderExp() {
+    const note = $("expNote");
+    if (!note) return;
+    const total = fontsToEmbed();
+    const missing = fontsMissingFromExport();
+    const kb = total.reduce((s, f) => s + Math.round((f.dataUrl ? f.dataUrl.length : 0) * 0.75 / 1024), 0);
+    if (!state.exp.embed) {
+      note.className = "expnote warn";
+      note.textContent = "ปิดการฝังฟอนต์อยู่ — ไฟล์ที่ส่งออกจะใช้ฟอนต์ของเครื่องที่เปิดไฟล์ ถ้าเครื่องนั้นไม่มีฟอนต์ ข้อความจะเปลี่ยนรูป";
+      return;
+    }
+    if (!total.length) {
+      note.className = "expnote";
+      note.textContent = "ยังไม่มีฟอนต์ที่แนบ — ไฟล์ที่ส่งออกจะใช้ฟอนต์ของเครื่องที่เปิดไฟล์";
+      return;
+    }
+    note.className = "expnote" + (missing.length ? " warn" : "");
+    note.textContent = "จะฝัง " + total.length + " ฟอนต์ (ประมาณ " + kb + " KB) ลงไฟล์ที่ส่งออก"
+      + (missing.length ? " · คำเตือน: ยังมี " + missing.length + " ฟอนต์ที่ใช้งานอยู่แต่ไม่ได้ฝัง — " + missing.slice(0, 3).join(", ") : "");
+  }
+  // เตือนก่อนส่งออก ถ้ามีฟอนต์ที่ใช้จริงแต่ไม่ถูกฝัง (ตั้งค่าเปิดไว้)
+  function warnMissingFontsOnce() {
+    if (!state.exp.warnFont) return false;
+    const missing = fontsMissingFromExport();
+    if (!missing.length) return false;
+    toast("ฟอนต์ที่ใช้งานอยู่แต่ไม่ได้ฝังลงไฟล์: " + missing.slice(0, 2).join(", ")
+      + " — เปิดที่เครื่องอื่นอาจเปลี่ยนรูป", "warn");
+    return true;
   }
 
   /* ---------------- selection / drag / resize ---------------- */
@@ -1059,7 +1146,7 @@
   function toggleCross(on) {
     state.cross = on == null ? !state.cross : !!on;
     $("btnCross").className = state.cross ? "cross-on" : "cross-off";
-    $("btnCross").textContent = state.cross ? "✛ เป้ากากบาท ON" : "✛ เป้ากากบาท";
+    $("btnCross").textContent = state.cross ? "✛ เป้ากากบาท" : "✛ เป้ากากบาท (ปิด)";
     if (state.cross) {
       const o = selected();
       if (!state.crossPos) {
@@ -1239,12 +1326,18 @@
   }
   function delPage() {
     if (state.pages.length <= 1) { toast("ต้องมีอย่างน้อย 1 หน้า", "err"); return; }
-    state.pages.splice(state.pageIdx, 1);
-    state.pageIdx = clamp(state.pageIdx, 0, state.pages.length - 1);
-    state.sel = null;
-    refreshAll();
-    saveDraftSoon();
-    toast("ลบหน้าแล้ว", "ok");
+    const pg = state.pages[state.pageIdx];
+    const n = pg.objects.length;
+    ask("ลบหน้านี้?", "หน้าที่ " + (state.pageIdx + 1) + " พร้อมชิ้นงานทั้งหมดบนหน้านั้น (" + n + " ชิ้น) จะหายไปและย้อนกลับไม่ได้", "ลบหน้านี้")
+      .then((yes) => {
+        if (!yes) return;
+        state.pages.splice(state.pageIdx, 1);
+        state.pageIdx = clamp(state.pageIdx, 0, state.pages.length - 1);
+        state.sel = null;
+        refreshAll();
+        saveDraftSoon();
+        toast("ลบหน้าแล้ว", "ok");
+      });
   }
   function gotoPage(i) {
     state.pageIdx = clamp(i, 0, state.pages.length - 1);
@@ -1412,12 +1505,18 @@
   }
 
   function clearRecords() {
-    state.records = [];
-    state.recIdx = 0;
-    $("jsonStatus").textContent = "ยังไม่โหลด";
-    $("jsonStatus").className = "status muted";
-    refreshAll();
-    saveDraftSoon();
+    if (!state.records.length) { toast("ยังไม่มีข้อมูลให้ล้าง"); return; }
+    const n = state.records.length;
+    ask("ล้างข้อมูลทั้งหมด?", "ข้อมูล " + n + " ชุดจะถูกลบออกจากงานนี้ (ผังงานและชิ้นงานยังอยู่)", "ล้างข้อมูล").then((yes) => {
+      if (!yes) return;
+      state.records = [];
+      state.recIdx = 0;
+      $("jsonStatus").textContent = "ยังไม่โหลด";
+      $("jsonStatus").className = "status muted";
+      refreshAll();
+      saveDraftSoon();
+      toast("ล้างข้อมูลแล้ว", "ok");
+    });
   }
 
   function gotoRecord(i) {
@@ -1689,6 +1788,7 @@
     try {
       await ensureFonts();
       const pages = printPages();
+      warnMissingFontsOnce();
       if (split) {
         for (let i = 0; i < sel.length; i++) {
           loadProg((i / sel.length) * 100, "สร้างไฟล์ " + (i + 1) + "/" + sel.length);
@@ -1829,7 +1929,7 @@
     state.sel = null;
     updateSelDom();
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const canvas = await html2canvas(el, { scale: 2, backgroundColor: "#fff", useCORS: true, logging: false });
+    const canvas = await html2canvas(el, { scale: state.exp.pngScale || 2, backgroundColor: "#fff", useCORS: true, logging: false });
     state.sel = prevSel;
     updateSelDom();
     return canvas;
@@ -1917,7 +2017,7 @@
       crossGain: crossGain()
     };
     downloadJson(obj, "overlay_layout.json");
-    toast("Export layout แล้ว (รวมฟอนต์ที่แนบ)", "ok");
+    toast("บันทึกผังงานแล้ว (รวมฟอนต์ที่แนบ) — เก็บไว้เป็นไฟล์ไว้สำรอง", "ok");
   }
 
   /* ---- Export HTML: ไฟล์ยืนยันตัวตนเปิดในเบราว์เซอร์แล้ว พิมพ์/บันทึกเป็น PDF ----
@@ -2205,6 +2305,7 @@ render(allIdx());
     try {
       await ensureFonts();
       const html = buildExportHtml();
+      warnMissingFontsOnce();
       const name = "template_" + new Date().toISOString().slice(0, 10) + ".html";
       downloadBlob(new Blob([html], { type: "text/html;charset=utf-8" }), name);
       toast("Export HTML แล้ว — เปิดไฟล์แล้วกด พิมพ์/บันทึกเป็น PDF", "ok");
@@ -2238,8 +2339,8 @@ render(allIdx());
       refreshAll();
       renderHistory();
       saveDraftSoon();
-      toast("Import layout แล้ว", "ok");
-      status("Import layout แล้ว (" + state.pages.length + " หน้า)", "ok");
+      toast("เปิดผังงานแล้ว (" + state.pages.length + " หน้า)", "ok");
+      status("เปิดผังงานแล้ว (" + state.pages.length + " หน้า)", "ok");
     } catch (err) {
       console.error(err);
       toast("Import ไม่สำเร็จ: " + err.message, "err");
@@ -2263,6 +2364,7 @@ render(allIdx());
       printNameTpl: state.printNameTpl,
       crossMode: crossMode(),
       crossGain: crossGain(),
+      exp: state.exp,
       time: Date.now()
     };
     d.fonts = lite ? state.fonts.map((f) => Object.assign({}, f, { dataUrl: "" })) : state.fonts;
@@ -2286,7 +2388,9 @@ render(allIdx());
         lite.pages.forEach((p) => { if (p.bg) p.bg = { kind: p.bg.kind, src: "", w: p.bg.w, h: p.bg.h, name: p.bg.name }; });
         localStorage.setItem(DRAFT_KEY, JSON.stringify(lite));
         toast("เซฟ draft (ไม่รวมภาพพื้นหลังและไฟล์ฟอนต์ — พื้นที่เต็ม)");
-      } catch (e2) { /* ปล่อยผ่าน */ }
+      } catch (e2) {
+        toast("เซฟงานไม่สำเร็จแม้แบบย่อ — พื้นที่เครื่องเต็ม กรุณากด “บันทึกผังงาน” เก็บไว้เป็นไฟล์", "err");
+      }
     }
   }
   function loadDraftBanner() {
@@ -2312,6 +2416,14 @@ render(allIdx());
       if (typeof data.printNameTpl === "string") state.printNameTpl = data.printNameTpl;
       applyCrossMode(data);
       applyFontData(data);
+      if (data.exp && typeof data.exp === "object") {
+        state.exp.embed = data.exp.embed !== false;
+        state.exp.warnFont = data.exp.warnFont !== false;
+        state.exp.pngScale = clamp(parseInt(data.exp.pngScale, 10) || 2, 1, 3);
+        $("expEmbedFonts").checked = state.exp.embed;
+        $("expWarnFont").checked = state.exp.warnFont;
+        $("expPngScale").value = String(state.exp.pngScale);
+      }
       printIndexes();
       renderPrint();
       refreshAll();
@@ -2325,6 +2437,7 @@ render(allIdx());
   function dismissDraft() {
     $("draftBanner").classList.remove("show");
     try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+    toast("ทิ้งงานเก่าแล้ว", "warn");
   }
 
   /* ---------------- wiring ---------------- */
@@ -2379,7 +2492,7 @@ render(allIdx());
     $("btnSnap").addEventListener("click", () => {
       state.snap = !state.snap;
       $("btnSnap").className = state.snap ? "snap-on" : "snap-off";
-      $("btnSnap").textContent = state.snap ? "⊹ Snap ON" : "⊹ Snap OFF";
+      $("btnSnap").textContent = state.snap ? "⊹ Snap ทำงาน" : "⊹ Snap ปิด";
     });
     $("btnViewAll").addEventListener("click", () => {
       state.viewAll = !state.viewAll;
@@ -2548,7 +2661,16 @@ render(allIdx());
     });
     $("btnApply").addEventListener("click", () => { applyPos(); refreshAll(); toast("Apply แล้ว", "ok"); });
     $("btnDup").addEventListener("click", duplicateSelected);
-    $("btnDel").addEventListener("click", () => { if (state.sel) deleteObj(state.sel.page, state.sel.id); });
+    $("btnDel").addEventListener("click", () => {
+      const o = selected();
+      if (!o) return;
+      ask("ลบชิ้นงานนี้?", (o.type === "stamp" ? "ชิ้นงานวันเวลา" : "ชิ้นงาน") + "ที่เลือกอยู่จะถูกลบและย้อนกลับไม่ได้", "ลบชิ้นงาน")
+        .then((yes) => {
+          if (!yes || !state.sel) return;
+          deleteObj(state.sel.page, state.sel.id);
+          toast("ลบชิ้นงานแล้ว", "ok");
+        });
+    });
     $("btnFront").addEventListener("click", () => reorder(1));
     $("btnBack").addEventListener("click", () => reorder(-1));
 
@@ -2578,10 +2700,15 @@ render(allIdx());
     });
     $("fillDel").addEventListener("click", () => {
       if (!state.records.length) return;
-      state.records.splice(state.recIdx, 1);
-      state.recIdx = clamp(state.recIdx, 0, Math.max(0, state.records.length - 1));
-      refreshAll();
-      saveDraftSoon();
+      const at = state.recIdx;
+      ask("ลบชุดข้อมูลนี้?", "ชุดที่ " + (at + 1) + " จะถูกลบและย้อนกลับไม่ได้", "ลบชุดนี้").then((yes) => {
+        if (!yes) return;
+        state.records.splice(state.recIdx, 1);
+        state.recIdx = clamp(state.recIdx, 0, Math.max(0, state.records.length - 1));
+        refreshAll();
+        saveDraftSoon();
+        toast("ลบชุดข้อมูลแล้ว", "ok");
+      });
     });
     $("fillExportKeys").addEventListener("click", () => downloadJson(allKeys(), "keys.json"));
     $("fillExportData").addEventListener("click", () => downloadJson(state.records, "data.json"));
@@ -2601,7 +2728,39 @@ render(allIdx());
     $("btnPDFall").addEventListener("click", () => exportPdf(true));
 
     // history
-    $("btnClearHist").addEventListener("click", () => { history = []; renderHistory(); });
+    $("btnClearHist").addEventListener("click", () => {
+      if (!history.length) { toast("ยังไม่มีประวัติให้ล้าง"); return; }
+      ask("ล้างประวัติทั้งหมด?", "ไฟล์ที่เคยส่งออกจะหายจากรายการนี้ (ตัวไฟล์บนเครื่องไม่ถูกลบ)", "ล้างทั้งหมด")
+        .then((yes) => {
+          if (!yes) return;
+          history = []; renderHistory();
+          toast("ล้างประวัติแล้ว", "ok");
+        });
+    });
+
+    // แผงจูนเป้ากากบาท (ยุบ/ขยาย)
+    const xpanel = $("crossPanel"), xbtn = $("btnCrossPanel");
+    if (xpanel && xbtn) {
+      xbtn.addEventListener("click", () => {
+        const open = xpanel.classList.toggle("open");
+        xbtn.className = open ? "primary" : "";
+        xbtn.setAttribute("aria-expanded", open ? "true" : "false");
+      });
+    }
+
+    // ตั้งค่าการส่งออก
+    $("expEmbedFonts").addEventListener("change", (e) => {
+      state.exp.embed = e.target.checked;
+      renderExp();
+      saveDraftSoon();
+      toast(state.exp.embed ? "เปิดการฝังฟอนต์ลงไฟล์แล้ว" : "ปิดการฝังฟอนต์แล้ว — ไฟล์จะเล็กลงแต่อาจเปลี่ยนรูปบนเครื่องอื่น", "warn");
+    });
+    $("expWarnFont").addEventListener("change", (e) => { state.exp.warnFont = e.target.checked; saveDraftSoon(); });
+    $("expPngScale").addEventListener("change", (e) => {
+      state.exp.pngScale = parseInt(e.target.value, 10) || 2;
+      saveDraftSoon();
+      toast("ความละเอียด PNG = " + state.exp.pngScale + "×");
+    });
 
     // tabs
     document.querySelectorAll(".tab").forEach((t) => {
@@ -2615,8 +2774,11 @@ render(allIdx());
       const o = selected();
       if (!o) return;
       if (e.key === "Delete" || e.key === "Backspace") {
-        deleteObj(state.sel.page, state.sel.id);
         e.preventDefault();
+        const target = state.sel;
+        ask("ลบชิ้นงานนี้?", "กดลบด้วยคีย์บอร์ด — ยืนยันก่อนลบชิ้นงานที่เลือกอยู่", "ลบชิ้นงาน").then((yes) => {
+          if (yes && target) { deleteObj(target.page, target.id); toast("ลบชิ้นงานแล้ว", "ok"); }
+        });
         return;
       }
       const step = e.shiftKey ? 2 : 0.3;
