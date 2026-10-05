@@ -144,7 +144,10 @@
       part: STAMP_PARTS[o.stampPart] ? o.stampPart : "datetime",
       mode: o.stampMode === "base" ? "base" : "now",
       base: typeof o.stampBase === "string" ? o.stampBase.trim() : "",
-      shift: isNaN(sh) ? 0 : clamp(sh, -12, 12)
+      shift: isNaN(sh) ? 0 : clamp(sh, -12, 12),
+      frozen: !!o.stampFrozen,
+      frozenText: typeof o.stampFrozenText === "string" ? o.stampFrozenText : "",
+      frozenAt: isNaN(parseInt(o.stampFrozenAt, 10)) ? 0 : parseInt(o.stampFrozenAt, 10)
     };
   }
   function parseYmd(s) {
@@ -167,15 +170,46 @@
     if (c.shift) d = addMonths(d, c.shift);
     return d;
   }
+  // ค่าที่ "ตรึงไว้" คือค่าคงที่ที่ถูกจับไว้ตอนกดตรึง — ไม่คำนวณใหม่ทุกครั้งที่เปิด/พิมพ์
+  // (ไม่ตรึง = อันตรายกับเอกสารย้อนหลัง ค่าจะเดินไปเงียบ ๆ)
   function stampText(o, now) {
-    const d = stampWhen(o, now);
     const c = stampCfg(o);
+    if (c.frozen && c.frozenText) return c.frozenText;
+    const d = stampWhen(o, now);
     const date = pad2(d.getDate()) + "/" + pad2(d.getMonth() + 1) + "/" + d.getFullYear();
     const time = pad2(d.getHours()) + ":" + pad2(d.getMinutes());
     if (c.part === "date") return date;
     if (c.part === "time") return time;
     if (c.part === "month") return pad2(d.getMonth() + 1) + "/" + d.getFullYear();
     return date + " " + time;
+  }
+
+  /* ตรึงค่า — จับค่าที่คำนวณได้ตอนนี้เก็บเป็นข้อความคงที่ ไม่คำนวณใหม่เมื่อเปิด/พิมพ์
+     เหตุผล: stamp ที่ไม่ตรึงจะเดินไปเงียบ ๆ ทุกครั้งที่เปิดไฟล์ ถ้าต้องกรอกย้อนหลัง
+     วันที่ในเอกสารจะผิดโดยไม่มีอะไรเตือน */
+  function stampCurrentText(o) {
+    const keep = o.stampFrozen, keepText = o.stampFrozenText;
+    o.stampFrozen = false; o.stampFrozenText = "";
+    const t = stampText(o);
+    o.stampFrozen = keep; o.stampFrozenText = keepText;
+    return t;
+  }
+  function freezeStamp(o) {
+    if (!o || o.type !== "stamp") return;
+    o.stampFrozenText = stampCurrentText(o);
+    o.stampFrozen = true;
+    o.stampFrozenAt = Date.now();
+  }
+  function unfreezeStamp(o) {
+    if (!o || o.type !== "stamp") return;
+    o.stampFrozen = false;
+    o.stampFrozenText = "";
+    o.stampFrozenAt = 0;
+  }
+  function stampFrozenLabel(c) {
+    if (!c.frozen) return "";
+    const when = c.frozenAt ? new Date(c.frozenAt).toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" }) : "";
+    return (c.frozenText || "") + (when ? "  ·ตรึงเมื่อ " + when : "");
   }
 
   /* ---------------- fonts (ผู้ใช้แนบเอง — ฝังลงไฟล์ export) ---------------- */
@@ -672,6 +706,24 @@
     $("edStampBase").disabled = c.mode !== "base";
     const pv = $("stampPreview");
     if (pv) pv.textContent = stampText(o);
+
+    // เตือนให้เห็นชัดว่าค่าจะเดินไปเองหรือไม่ — ไม่ตรึง = เอกสารย้อนหลังจะได้วันที่ผิดเงียบ ๆ
+    const warn = $("stampWarn"), frz = $("stampFrozenInfo"), btn = $("btnStampFreeze");
+    if (warn) {
+      warn.style.display = c.frozen ? "none" : "";
+      const live = stampCurrentText(o);
+      warn.innerHTML = '<b>ยังไม่ตรึงค่า</b> — วันที่นี้จะถูกคำนวณใหม่ทุกครั้งที่เปิดไฟล์หรือพิมพ์'
+        + (c.mode === "now" ? " (ตอนนี้คือ <b>" + live + "</b>)" : "")
+        + '<br>ถ้าเอกสารต้องคงวันที่เดิม ให้กด “ตรึงค่านี้ไว้”';
+    }
+    if (frz) {
+      frz.style.display = c.frozen ? "" : "none";
+      frz.textContent = c.frozen ? "ค่าคงที่: " + stampFrozenLabel(c) : "";
+    }
+    if (btn) {
+      btn.textContent = c.frozen ? "ปลดตรึง (คำนวณเวลาปัจจุบันอีกครั้ง)" : "ตรึงค่านี้ไว้";
+      btn.className = c.frozen ? "mini" : "primary";
+    }
   }
 
   // เตือนถ้าฟอนต์ที่เลือกไม่มีตัวหนาจริง (เรนเดอร์จะไม่หนาตามที่ตั้ง)
@@ -1262,6 +1314,7 @@
       base.w = 34; base.h = 5; base.y = 88; base.x = 12;
       base.align = "left";
       base.stampPart = "datetime"; base.stampMode = "now"; base.stampBase = ""; base.stampShift = 0;
+      base.stampFrozen = false; base.stampFrozenText = ""; base.stampFrozenAt = 0;
     }
     Object.assign(base, extra || {});
     // วางกึ่งกลางของหน้าในมุมมองปัจจุบัน
@@ -2133,9 +2186,11 @@ html,body{margin:0;background:#555;font-family:${FONT_FALLBACK}}
 <script>
 var D=${payload};
 function pad2(n){return n<10?"0"+n:""+n;}
-/* stamp: ค่าตายตัวในเทมเพลต แต่คำนวณใหม่จากเวลาปัจจุบันทุกครั้งที่เรนเดอร์/พิมพ์ */
+/* stamp: ค่าตายตัวในเทมเพลต แต่คำนวณใหม่จากเวลาปัจจุบันทุกครั้งที่เรนเดอร์/พิมพ์
+   ยกเว้นเมื่อผู้ใช้กด "ตรึงค่า" ไว้ — จะใช้ค่าคงที่ที่บันทึกไว้ ไม่เดินตามเวลาปัจจุบัน */
 function stampText(sm){
   sm=sm||{};
+  if(sm.frozen&&sm.frozenText)return String(sm.frozenText);
   var d=null, m;
   if(sm.mode==="base"){m=/^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(String(sm.base||""));if(m)d=new Date(+m[1],+m[2]-1,+m[3]);}
   if(!d)d=new Date();
@@ -2633,6 +2688,17 @@ render(allIdx());
       edStampBase: (o, v) => { o.stampBase = v.trim(); },
       edStampShift: (o, v) => { o.stampShift = clamp(parseInt(v, 10) || 0, -12, 12); }
     };
+    // ตรึง/ปลดตรึงค่าวันเวลา — ป้องกันวันที่ในเอกสารเดินไปเงียบ ๆ
+    if ($("btnStampFreeze")) {
+      $("btnStampFreeze").addEventListener("click", () => {
+        const o = selected();
+        if (!o || o.type !== "stamp") { toast("เลือกชิ้นงานวันเวลาก่อน", "err"); return; }
+        if (stampCfg(o).frozen) { unfreezeStamp(o); toast("ปลดตรึงแล้ว — กลับไปคำนวณเวลาปัจจุบันอีกครั้ง"); }
+        else { freezeStamp(o); toast("ตรึงค่าไว้: " + stampCfg(o).frozenText, "ok"); }
+        refreshAll();
+        saveDraftSoon();
+      });
+    }
     Object.keys(simple).forEach((id) => {
       $(id).addEventListener("change", () => {
         const o = selected();

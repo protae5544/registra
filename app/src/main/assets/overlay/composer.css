@@ -441,3 +441,12 @@ pre{white-space:pre-wrap;word-break:break-word;font:var(--t-xs)/1.5 ui-monospace
 @media(prefers-reduced-motion:reduce){
   *{transition:none !important;animation-duration:.001ms !important}
 }
+/* ─────────── stamp: เตือนเงียบ + ค่าที่ตรึงไว้ ─────────── */
+.notice{display:block;margin-top:10px;padding:9px 11px;border-radius:10px;
+  background:var(--warn-bg);border:1px solid var(--warn-border);color:var(--warn-ink);
+  font-size:var(--t-xs);line-height:1.5}
+.notice b{font-weight:700}
+.frozeninfo{display:block;margin-top:8px;padding:9px 11px;border-radius:10px;
+  background:var(--ok-soft);border:1px solid var(--ok);color:var(--ok);
+  font-size:var(--t-xs);font-weight:700;word-break:break-word}
+#stampbox .row button{width:100%}

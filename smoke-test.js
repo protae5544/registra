@@ -713,6 +713,56 @@ async function run() {
   check("เลือกชนิดข้อความ -> กลับมาแสดงกลุ่มตัวอักษร", $("grpText").style.display !== "none");
   check("เลือกชนิดข้อความ -> ยังซ่อนกลุ่มรูปภาพ", $("grpImage").style.display === "none");
 
+  // 38) stamp: เตือนว่าค่าจะเดินเอง + ตรึงค่าแล้วไม่เดินอีก (กันวันที่เอกสารย้อนหลังผิดเงียบ)
+  click(document.querySelector('[data-add="stamp"]'));
+  await waitFor(() => document.querySelector('.obj[data-type="stamp"]') != null);
+  const stEl = document.querySelector(".obj.sel .stampval");
+  check("เพิ่มชิ้นงานวันเวลาแล้วขึ้นค่าจริงบนหน้า", !!stEl && /\d{2}\/\d{2}\/\d{4}/.test(stEl.textContent));
+  check("ยังไม่ตรึง -> แสดงคำเตือนว่าวันที่จะเดินเอง", $("stampWarn").style.display !== "none");
+  check("คำเตือนบอกด้วยว่าค่าปัจจุบันคืออะไร", $("stampWarn").textContent.includes(stEl.textContent));
+  check("ยังไม่ตรึง -> ปุ่มเป็นคำสั่งตรึง", $("btnStampFreeze").textContent.includes("ตรึงค่านี้ไว้"));
+
+  const live1 = stEl.textContent;
+  click($("btnStampFreeze"));
+  await waitFor(() => $("stampFrozenInfo").style.display !== "none");
+  const frozenVal = $("stampFrozenInfo").textContent.replace(/^ค่าคงที่:\s*/, "").split("  ·")[0];
+  check("กดตรึงแล้วซ่อนคำเตือน", $("stampWarn").style.display === "none");
+  check("กดตรึงแล้วแสดงค่าคงที่ + เวลาที่ตรึง", frozenVal.length > 0 && $("stampFrozenInfo").textContent.includes("ตรึงเมื่อ"));
+  check("ค่าบนหน้า = ค่าที่ตรึง ไม่ใช่ค่าที่คำนวณใหม่", $("stampPreview").textContent === frozenVal);
+  check("ปุ่มสลับเป็นคำสั่งปลดตรึง", $("btnStampFreeze").textContent.includes("ปลดตรึง"));
+
+  // เดินเวลาไปข้างหน้า 1 ปี — ค่าที่ตรึงต้องไม่ขยับ
+  // patchบน window.Date เพราะ app.js ถูก eval ในบริบทของ window (jsdom มี Date คนละตัวกับ node)
+  const realNow = window.Date.now;
+  window.Date.now = () => realNow() + 366 * 864e5;
+  try {
+    $("edStampPart").dispatchEvent(new window.Event("change", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 30));
+    check("เวลาเดินไป 1 ปี -> ค่าที่ตรึงไม่เปลี่ยน",
+      $("stampPreview").textContent === frozenVal
+      && document.querySelector(".obj.sel .stampval").textContent === frozenVal);
+    click($("btnStampFreeze"));
+    await waitFor(() => $("stampWarn").style.display !== "none");
+    check("ปลดตรึงแล้วกลับมาคำนวณเวลาปัจจุบัน (เดินไป 1 ปี)",
+      $("stampPreview").textContent !== frozenVal && $("stampPreview").textContent.length > 0);
+  } finally {
+    window.Date.now = realNow;
+  }
+
+  // 39) ค่าที่ตรึงต้องไปถึงไฟล์ export จริง (พรีวิว = ไฟล์จริง)
+  click($("btnStampFreeze"));
+  await waitFor(() => $("stampFrozenInfo").style.display !== "none");
+  const frozenForExport = $("stampFrozenInfo").textContent.replace(/^ค่าคงที่:\s*/, "").split("  ·")[0];
+  const savedStamp = [];
+  window.ChbAndroid = { saveBase64: (n, b64, m) => savedStamp.push({ n, b64, m }) };
+  click($("btnExportHtml"));
+  await waitFor(() => savedStamp.length === 1, 4000);
+  check("Export HTML ผ่าน bridge", savedStamp.length === 1);
+  const htmlStamp = savedStamp[0] ? Buffer.from(savedStamp[0].b64, "base64").toString("utf8") : "";
+  check("payload มีค่าตรึงของ stamp", htmlStamp.includes('"frozen":true') && htmlStamp.includes(frozenForExport));
+  check("สคริปต์ในไฟล์ export รู้จักค่าที่ตรึง", htmlStamp.includes("if(sm.frozen&&sm.frozenText)return String(sm.frozenText)"));
+  delete window.ChbAndroid;
+
   console.log("\n==== RESULT: " + pass + " passed, " + fail + " failed ====");
   process.exit(fail ? 1 : 0);
 }
