@@ -600,6 +600,41 @@ async function run() {
   check("stamp ในไฟล์ export แสดงเป็นเวลาปัจจุบันจริง", !!stampNode && stampNode.textContent === shiftTxt);
   dropBridge();
 
+  // 33) เปลี่ยน object เดิมเป็น stamp ต้องได้ค่าเริ่มต้นที่คำนวณจากเวลาปัจจุบัน
+  const firstObj = document.querySelector(".page .obj");
+  ev(firstObj, "pointerdown", { clientX: 100, clientY: 100 });
+  wev("pointerup", { clientX: 100, clientY: 100 });
+  $("edType").value = "stamp";
+  $("edType").dispatchEvent(new window.Event("change", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  check("เปลี่ยน Type เป็น stamp แล้วเรนเดอร์เป็น stamp ทันที",
+    !!document.querySelector('.obj[data-type="stamp"] .stampval')
+    && /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/.test(document.querySelector(".obj .stampval").textContent));
+  check("แผง stamp เปิดเองพร้อมค่าเริ่มต้น และปิดช่องวันที่ตายตัวไว้",
+    $("stampbox").style.display === "block" && $("edStampPart").value === "datetime"
+    && $("edStampMode").value === "now" && $("edStampShift").value === "0" && $("edStampBase").disabled === true);
+  await setStamp("edStampPart", "date");
+  await setStamp("edStampMode", "base");
+  await setStamp("edStampBase", "2024-01-31");
+  await setStamp("edStampShift", "-3");
+  check("stamp ที่ตั้งค่าแล้วคำนวณจากวันที่ตายตัวเลื่อนย้อนหลัง",
+    document.querySelector(".obj .stampval").textContent === "31/10/2023");
+  // PNG export ยังทำงาน และ layout ต้องเก็บค่าคงที่ + โหมดเคอเซอร์
+  let saved33 = [];
+  saveAs(saved33);
+  click($("btnPNG"));
+  await waitFor(() => saved33.length === 1, 4000);
+  check("PNG export ยังทำงานได้เมื่อมี stamp อยู่บนหน้า", saved33.length === 1 && /\.png$/.test(saved33[0].n));
+  saved33.length = 0; // ล้างในตัวเดิม — bridge ถืออ้างอิง array นี้อยู่
+  click($("btnExportLayout"));
+  await waitFor(() => saved33.length === 1, 5000);
+  const layout33 = JSON.parse(Buffer.from(saved33[0].b64, "base64").toString("utf8"));
+  const lo = layout33.pages[0].objects.find((o) => o.type === "stamp");
+  check("export layout เก็บค่าคงที่ของ stamp และโหมดเคอเซอร์ครบ",
+    !!lo && lo.stampPart === "date" && lo.stampMode === "base" && lo.stampBase === "2024-01-31"
+    && lo.stampShift === -3 && layout33.crossMode === "trackpad" && layout33.crossGain === 1);
+  dropBridge();
+
   console.log("\n==== RESULT: " + pass + " passed, " + fail + " failed ====");
   process.exit(fail ? 1 : 0);
 }
