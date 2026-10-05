@@ -33,6 +33,8 @@ button:disabled{opacity:.4;cursor:not-allowed}
 button.primary{background:var(--brand);border-color:var(--brand);color:var(--brand-ink);font-weight:700}
 button.add-btn{background:#effcf2;border-color:#b6e8c4;color:#127a3c;font-weight:700}
 button.warn{background:var(--warn-bg);border-color:var(--warn-border);color:var(--warn-ink)}
+button.cross-off{background:#f5f5f5;border-color:#ccc;color:#888}
+button.cross-on{background:#efe4ff;border-color:#a06de0;color:#5b21b6;font-weight:700}
 button.snap-on{background:#e8f4e8;border-color:#4caf50;color:#2e7d32;font-weight:700}
 button.snap-off{background:#f5f5f5;border-color:#ccc;color:#888}
 button.view-all{background:#fff8e6;border-color:#f0dA9a;color:#8a6100;font-weight:700}
@@ -93,8 +95,7 @@ button.view-all.active{background:#ffedc2;border-color:#e0b24a}
 .obj.locked{border-style:dotted;border-color:rgba(200,0,0,.35);cursor:not-allowed}
 .content{width:100%;height:100%;overflow:hidden;display:flex;align-items:center;
   justify-content:flex-start;background:transparent;pointer-events:none}
-.obj[data-type="text"] .content{padding:0 4px;white-space:pre-wrap;word-break:break-word;
-  font-family:"THSarabunNew","Sarabun","Noto Sans Thai","Times New Roman",serif}
+.obj[data-type="text"] .content{white-space:pre-wrap;word-break:break-word}
 .obj[data-align="center"] .content{justify-content:center;text-align:center}
 .obj[data-align="right"] .content{justify-content:flex-end;text-align:right}
 .content .ph{color:#9aa4ae;font-weight:400}
@@ -127,6 +128,54 @@ button.view-all.active{background:#ffedc2;border-color:#e0b24a}
   border:1px solid var(--line);border-radius:8px;padding:4px 10px;font-size:12px;
   pointer-events:none;display:none;gap:8px;align-items:center}
 
+/* ─────────── Crosshair (เป้ากากบาทวางตำแหน่งแบบสัมพัทธ์) ─────────── */
+.crossLayer{position:absolute;inset:0;pointer-events:none;z-index:35;display:none}
+.page.cross-on .crossLayer{display:block}
+.crossLayer .cl{position:absolute;background:rgba(160,60,220,.85)}
+.crossLayer .cl.v{width:1px;top:0;bottom:0}
+.crossLayer .cl.h{height:1px;left:0;right:0}
+.crossLayer .cm{position:absolute;width:26px;height:26px;margin:-13px 0 0 -13px;border:2px solid rgba(160,60,220,.9);border-radius:50%}
+.crossLayer .cm::after{content:"";position:absolute;left:50%;top:50%;width:8px;height:8px;margin:-4px 0 0 -4px;border-radius:50%;background:rgba(160,60,220,.95)}
+.crossTag{position:absolute;transform:translate(-50%,0);background:rgba(160,60,220,.95);color:#fff;
+  border-radius:6px;padding:2px 7px;font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.coordbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px;
+  background:#f7f8fa;border:1px solid var(--line2);border-radius:10px;padding:6px 8px}
+.coordbar select{min-height:34px;font-size:12px;padding:0 8px}
+.coordbar .mini{min-height:34px;padding:0 8px;font-size:12px}
+#coordReadout{font-size:12px;font-variant-numeric:tabular-nums}
+
+/* ─────────── Fonts ─────────── */
+.fontRow{border:1px solid var(--line2);border-radius:10px;padding:8px;background:#fafbfd}
+.fontRow .fname{font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis}
+.fontRow .fmeta{font-size:11px;color:var(--muted);margin-top:2px;word-break:break-word}
+.fontRow.off{opacity:.55}
+.fontRow.isdefault{border-color:var(--brand);background:#f2f7ff}
+.fontRow input[type="checkbox"]{min-height:22px;width:22px;height:22px}
+.fsample{font-size:26px;line-height:1.3;margin-top:6px;padding:4px 6px;border-radius:8px;background:#fff;border:1px dashed #d9dde5;overflow:hidden;white-space:nowrap}
+
+/* ─────────── Batch edit ─────────── */
+.batchbox{margin-top:10px;border:1px solid #d9dde5;background:#f7f8fa;border-radius:10px;padding:10px}
+.batchbox .brow{display:grid;grid-template-columns:104px 1fr;gap:6px;align-items:center;margin-top:6px}
+.batchbox .brow input[type="number"],.batchbox .brow input[type="text"]{min-height:36px;font-size:13px;width:100%}
+.batchbox .brow input[type="color"]{min-height:36px;width:100%}
+.batchbox .brow select{min-height:36px;font-size:13px}
+.batchbox .bchk{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink)}
+.batchbox .bchk input[type="checkbox"]{min-height:20px;width:20px;height:20px}
+
+/* ─────────── Sortable print list ─────────── */
+.plist{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.prow{display:grid;grid-template-columns:auto auto 1fr auto;gap:6px;align-items:center;
+  border:1px solid var(--line2);border-radius:10px;padding:6px 8px;background:#fafbfd;touch-action:none}
+.prow.sel{border-color:var(--brand);background:#f2f7ff}
+.prow.dragging{opacity:.85;border-color:#a06de0;box-shadow:0 6px 18px rgba(160,60,220,.25);z-index:5;position:relative}
+.prow .handle{cursor:grab;font-size:18px;line-height:1;color:var(--muted);padding:6px 8px;min-height:36px;touch-action:none}
+.prow .idx{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:20px;text-align:right}
+.prow .plabel{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prow input[type="checkbox"]{min-height:22px;width:22px;height:22px}
+.prow .mini{min-height:30px;padding:0 8px;font-size:11px}
+.prow.off{opacity:.5}
+code{background:#eef1f4;border-radius:4px;padding:1px 4px;font-size:11px}
+
 /* ─────────── Sidebar ─────────── */
 .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .box{background:#fafbfd;border:1px solid var(--line2);border-radius:10px;padding:8px 10px}
@@ -137,6 +186,7 @@ button.view-all.active{background:#ffedc2;border-color:#e0b24a}
 .item{border:1px solid var(--line2);border-radius:10px;padding:10px;background:#fafbfd}
 .item.sel{border-color:var(--brand);background:#f2f7ff}
 .itemhead{display:grid;grid-template-columns:minmax(70px,1fr) auto auto;gap:6px;align-items:center}
+.itemhead.fhead{grid-template-columns:auto minmax(70px,1fr) auto auto}
 .itemhead input{min-height:36px;font-size:13px;width:100%}
 .itemhead .mini{min-height:34px;padding:0 9px;font-size:12px}
 .chip{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;

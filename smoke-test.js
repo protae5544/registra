@@ -301,6 +301,186 @@ async function run() {
   await waitFor(() => sumRecords() === 1);
   check("แถบ JSON บนสุดโหลดแทนทั้งหมด", $("sumRecords").textContent === "1");
 
+  // ---------- ตัวช่วยสำหรับฟีเจอร์ใหม่ ----------
+  const ev = (el, type, init) => el.dispatchEvent(new window.MouseEvent(type, Object.assign({ bubbles: true }, init || {})));
+  const wev = (type, init) => window.dispatchEvent(new window.MouseEvent(type, Object.assign({ bubbles: true }, init || {})));
+  const norm = (s) => String(s || "").replace(/\s+/g, "");
+  // ผ่าน CSSOM ของเบราว์เซอร์เหมือนกันทั้งสองฝั่ง แล้วเทียบทีละตัวอักษร
+  const sameCss = (a, b) => {
+    const probe = document.createElement("div");
+    probe.style.cssText = a;
+    return probe.style.cssText === b;
+  };
+  const payloadOf = (html) => JSON.parse(html.slice(html.indexOf("var D=") + 6, html.indexOf(";\nfunction render")));
+  const saveAs = (arr) => { window.ChbAndroid = { saveBase64: (n, b64) => { arr.push({ n: n, b64: b64 }); return "ok"; } }; };
+  const dropBridge = () => { delete window.ChbAndroid; };
+
+  // 25) แนบไฟล์ฟอนต์หลายไฟล์ + จับคู่ตัวหนาเข้าครอบครัวเดียวกัน
+  setFiles($("fontFile"), [
+    new window.File(["AAA"], "THSarabunNew.woff2", { type: "font/woff2" }),
+    new window.File(["BBB"], "THSarabunNew+Bold.ttf", { type: "font/ttf" })
+  ]);
+  await waitFor(() => $("fontList").querySelectorAll(".fontRow").length === 2);
+  const frows = Array.from($("fontList").querySelectorAll(".fontRow"));
+  check("แนบฟอนต์ได้หลายไฟล์พร้อมกัน", frows.length === 2);
+  check("fontStatus สรุปจำนวนไฟล์ที่แนบ", $("fontStatus").textContent.includes("2 ไฟล์"));
+  check("ไฟล์ธรรมดาและไฟล์ตัวหนาอยู่ครอบครัวฟอนต์เดียวกัน",
+    frows.every((r) => r.querySelector(".fname").textContent.includes("THSarabunNew")));
+  check("ไฟล์ Bold ถูกจัดเป็นตัวหนาของครอบครัว", frows[1].querySelector(".fname").textContent.includes("ตัวหนา"));
+  check("ตัวเลือกฟอนต์ใน Object มองเห็นว่าครอบครัวนี้มีตัวหนา",
+    Array.from($("edFamily").options).some((o) => o.textContent.includes("มีตัวหนา")));
+  check("มี @font-face ถูกฉีดลงหน้าเว็บตอนแนบฟอนต์",
+    /@font-face\{font-family:"THSarabunNew";src:url\(data:font\/woff2;base64,/.test(
+      ($("userFontCss") ? $("userFontCss").textContent : "")));
+
+  // 26) ใช้ฟอนต์ที่แนบ + ตัวหนา แล้วพรีวิวต้องเป็นฟอนต์นั้นจริง
+  const objEl = document.querySelector(".page .obj");
+  ev(objEl, "pointerdown", { clientX: 100, clientY: 100 });
+  wev("pointerup", { clientX: 100, clientY: 100 });
+  $("edFamily").value = "THSarabunNew";
+  $("edFamily").dispatchEvent(new window.Event("change", { bubbles: true }));
+  $("edBold").checked = true;
+  $("edBold").dispatchEvent(new window.Event("change", { bubbles: true }));
+  const contentEl = () => document.querySelector(".page .obj .content");
+  check("พรีวิวใช้ฟอนต์ที่ผู้ใช้แนบ", contentEl().style.fontFamily.includes("THSarabunNew"));
+  check("พรีวิวใช้ตัวหนาเมื่อฟอนต์ที่แนบมีตัวหนาจริง", contentEl().style.fontWeight === "700");
+  check("หมายเหตุบอกว่าฟอนต์นี้มีตัวหนา", $("edBoldNote").textContent.includes("มีตัวหนา"));
+
+  // 27) พรีวิว กับ ไฟล์ export ต้องตรงกัน 100% (CSS ชุดเดียวกัน)
+  let saved26 = [];
+  saveAs(saved26);
+  click($("btnExportHtml"));
+  await waitFor(() => saved26.length === 1);
+  const html26 = Buffer.from(saved26[0].b64, "base64").toString("utf8");
+  const D26 = payloadOf(html26);
+  const objNow = document.querySelector(".page .obj");
+  check("export ฝังฟอนต์ของผู้ใช้เป็น data URL", /@font-face\{font-family:"THSarabunNew";src:url\(data:font\/woff2;base64,/.test(html26));
+  check("export ฝังตัวหนาของครอบครัวด้วย", html26.includes('font-weight:700;font-style:normal'));
+  check("CSS ของเนื้อหาในไฟล์ export ตรงกับพรีวิวทุกตัวอักษร",
+    sameCss(D26.pageObjs[0][0].oc, contentEl().style.cssText));
+  check("กล่อง/ตำแหน่ง/ขนาดในไฟล์ export ตรงกับพรีวิวทุกตัวอักษร",
+    sameCss(D26.pageObjs[0][0].box, objNow.style.cssText));
+  check("ไฟล์ export ใช้ฟอนต์เดียวกับพรีวิว (font-weight/ตัวอักษร/แนวตั้ง)",
+    D26.pageObjs[0][0].oc.indexOf("font-weight:700") >= 0 && D26.pageObjs[0][0].oc.indexOf("font-family:") >= 0);
+  dropBridge();
+
+  // 27b) เปิดไฟล์ export จริงแล้วเรนเดอร์ต้องได้ผลเดียวกับพรีวิวทุกตัวอักษร
+  const domOut = new JSDOM(html26, { runScripts: "dangerously", url: "http://localhost/" });
+  await waitFor(() => domOut.window.document.querySelectorAll("#out .page .o").length > 0);
+  const oEls = domOut.window.document.querySelectorAll("#out .page .o");
+  check("เปิดไฟล์ export แล้วเรนเดอร์หน้าได้จริง", oEls.length === D26.pageObjs[0].length);
+  const pvBox = document.querySelector(".page .obj").style.cssText;
+  const pvContent = document.querySelector(".page .obj .content").style.cssText;
+  check("ผลลัพธ์ของไฟล์ export ตรงกับพรีวิว (กล่อง+ฟอนต์+ขนาด+ตำแหน่ง)",
+    !!oEls[0] && sameCss(oEls[0].style.cssText, pvBox)
+    && sameCss(oEls[0].querySelector(".oc").style.cssText, pvContent));
+  check("ไฟล์ export ฝังฟอนต์ใน <style> จริง (ไม่พึ่งอินเทอร์เน็ต)",
+    /@font-face\{font-family:"THSarabunNew";src:url\(data:font\//.test(
+      domOut.window.document.querySelector("style").textContent));
+
+  // 28) ปรับหลายฟิลด์พร้อมกันด้วยการติ้กเลือก
+  click(document.querySelector('.tab[data-tab="fields"]'));
+  click($("btnAddField"));
+  const itemRows = $("schemaList").querySelectorAll(".item");
+  check("ทุกฟิลด์มีช่องติ้กสำหรับเลือกหลายฟิลด์", itemRows.length >= 2 && !!itemRows[0].querySelector('input[type="checkbox"]'));
+  const picks = $("schemaList").querySelectorAll('.item input[type="checkbox"]');
+  picks[0].checked = true;
+  picks[0].dispatchEvent(new window.Event("change", { bubbles: true }));
+  picks[1].checked = true;
+  picks[1].dispatchEvent(new window.Event("change", { bubbles: true }));
+  check("นับจำนวนฟิลด์ที่ติ้กได้", $("batchCount").textContent === "2");
+  click($("batchSelectAll"));
+  check("ปุ่มติ้กทั้งหมดเลือกทุกฟิลด์",
+    parseInt($("batchCount").textContent, 10) === itemRows.length && itemRows.length > 1);
+  $("bOnFs").checked = true; $("bFs").value = "28";
+  $("bOnFamily").checked = true; $("bFamily").value = "THSarabunNew";
+  $("bOnBold").checked = true; $("bBold").checked = true;
+  $("bOnAlign").checked = true; $("bAlign").value = "center";
+  $("bOnValign").checked = true; $("bValign").value = "top";
+  $("bOnLetter").checked = true; $("bLetter").value = "1.5";
+  $("bOnText").checked = true; $("bText").value = "ทดสอบ";
+  click($("batchApply"));
+  const contents = Array.from(document.querySelectorAll('.page .obj[data-type="text"] .content'));
+  check("ปรับขนาดให้ทุกฟิลด์ที่ติ้กพร้อมกัน", contents.length > 1 && contents.every((c) => c.style.fontSize === "28px"));
+  check("ปรับรูปแบบ (ฟอนต์/ตัวหนา/จัดแนว/แนวตั้ง/ตัวอักษร) ให้ทุกฟิลด์ที่ติ้ก",
+    contents.every((c) => c.style.fontFamily.includes("THSarabunNew") && c.style.fontWeight === "700"
+      && c.style.textAlign === "center" && c.style.alignItems === "flex-start" && c.style.letterSpacing === "1.5px"));
+  check("ปรับเนื้อหาให้ทุกฟิลด์ที่ติ้ก", contents.every((c) => c.textContent === "ทดสอบ"));
+  click($("batchClearSel"));
+  check("ล้างการติ้กได้", $("batchCount").textContent === "0");
+
+  // 29) เป้ากากบาท: แตะวางเป้า แล้วเลื่อนนิ้วจากตำแหน่งคนละที่
+  const pageEl = document.querySelector(".page");
+  pageEl.getBoundingClientRect = () => ({ left: 0, top: 0, width: 794, height: 1123, right: 794, bottom: 1123 });
+  ev(document.querySelector(".page .obj"), "pointerdown", { clientX: 100, clientY: 100 });
+  wev("pointerup", { clientX: 100, clientY: 100 });
+  click($("btnCross"));
+  check("เปิดโหมดเป้ากากบาท", $("btnCross").className === "cross-on" && pageEl.classList.contains("cross-on"));
+  ev(pageEl, "pointerdown", { clientX: 200, clientY: 300 });
+  wev("pointerup", { clientX: 200, clientY: 300 });
+  const cm = pageEl.querySelector(".crossLayer .cm");
+  const exX = 200 / 794 * 100, exY = 300 / 1123 * 100;
+  check("แตะแล้วเป้ากากบาทอยู่ที่ตำแหน่งที่แตะ", !!cm && Math.abs(parseFloat(cm.style.left) - exX) < 0.05);
+  check("object เดินไปตามเป้าที่วาง", Math.abs(parseFloat($("edX").value) - exX) < 0.2 && Math.abs(parseFloat($("edY").value) - exY) < 0.2);
+  check("พิกัดรายงานเป็น %/mm/px ครบ", /X [\d.]+% . [\d.]+mm . [\d.]+px\s+Y [\d.]+% . [\d.]+mm . [\d.]+px/.test($("coordReadout").textContent));
+  click($("btnSnap")); // ปิด snap เพื่อให้ตัวเลขทดสอบเป็นค่าตามที่เลื่อนจริง
+  ev(pageEl, "pointerdown", { clientX: 600, clientY: 800 });
+  wev("pointermove", { clientX: 640, clientY: 860 });
+  wev("pointerup", { clientX: 640, clientY: 860 });
+  const nx = exX + (640 - 600) / 794 * 100, ny = exY + (860 - 800) / 1123 * 100;
+  check("เลื่อนนิ้วจากตำแหน่งอื่นแล้วเป้าเดินตามแบบสัมพัทธ์",
+    Math.abs(parseFloat($("edX").value) - nx) < 0.02 && Math.abs(parseFloat($("edY").value) - ny) < 0.02);
+  check("นิ้วอยู่คนละตำแหน่งกับเป้าจริง (ไม่บังตำแหน่ง)", 640 / 794 * 100 - parseFloat($("edX").value) > 20);
+  click($("crossNudgeR"));
+  check("ขยับละเอียด 0.1% ได้", Math.abs(parseFloat($("edX").value) - (nx + 0.1)) < 0.02);
+  click($("btnCross"));
+  check("ปิดโหมดเป้ากากบาท", $("btnCross").className === "cross-off");
+
+  // 30) ลำดับการสั่งพิมพ์ + ตั้งชื่อไฟล์จากคีย์ที่เลือก
+  setFiles($("jsonFile2"), [new window.File([JSON.stringify([
+    { name: "ก", id: "1" }, { name: "ข", id: "2" }, { name: "ค", id: "3" }
+  ])], "p.json", { type: "application/json" })]);
+  await waitFor(() => sumRecords() === 4);
+  click(document.querySelector('.tab[data-tab="print"]'));
+  check("รายการสั่งพิมพ์มีครบทุกชุดข้อมูล", $("printList").querySelectorAll(".prow").length === 4);
+  $("printNameKey").value = "name";
+  $("printNameKey").dispatchEvent(new window.Event("change", { bubbles: true }));
+  $("printNameTpl").value = "{n}_{key}";
+  $("printNameTpl").dispatchEvent(new window.Event("input", { bubbles: true }));
+  check("เลือกคีย์สำหรับตั้งชื่อได้", Array.from($("printNameKey").options).some((o) => o.value === "name"));
+  check("ตั้งชื่อไฟล์ตามคีย์ที่เลือก", $("printPreview").textContent.includes("01_คนเดียว.html"));
+  ev($("printList").querySelectorAll(".prow")[0].querySelector(".handle"), "pointerdown", { clientY: 0 });
+  wev("pointermove", { clientY: 75 });
+  wev("pointerup", { clientY: 75 });
+  const rowAfterDrag = $("printList").querySelectorAll(".prow");
+  check("ลากหูหมายจัดลำดับการพิมพ์ได้", rowAfterDrag[0].textContent.includes("ก") && rowAfterDrag[1].textContent.includes("คนเดียว"));
+  const pcbs = $("printList").querySelectorAll('.prow input[type="checkbox"]');
+  pcbs[1].checked = false;
+  pcbs[1].dispatchEvent(new window.Event("change", { bubbles: true }));
+  check("ถอดติ้กชุดที่ไม่ต้องพิมพ์ได้", $("printList").querySelectorAll(".prow")[1].className.indexOf("off") >= 0);
+
+  let saved30 = [];
+  saveAs(saved30);
+  $("printScope").value = "current";
+  $("printScope").dispatchEvent(new window.Event("change", { bubbles: true }));
+  click($("printOneFile"));
+  await waitFor(() => saved30.length === 1);
+  const html30 = Buffer.from(saved30[0].b64, "base64").toString("utf8");
+  const D30 = payloadOf(html30);
+  check("ไฟล์พิมพ์เรียงลำดับชุดข้อมูลตามที่ลากจัด และข้ามชุดที่ถอดติ้ก",
+    D30.recs.map((r) => r.name).join(",") === "ก,ข,ค");
+  check("ขอบเขตหน้าที่พิมพ์เป็นหน้าปัจจุบันตามที่เลือก", D30.pageList.length === 1);
+  check("ตั้งชื่อไฟล์พิมพ์ได้", /^01_ก-all-03\.html$/.test(saved30[0].n));
+  check("ไฟล์พิมพ์ยังฝังฟอนต์ครบ", html30.indexOf("@font-face") >= 0);
+
+  saved30 = [];
+  saveAs(saved30);
+  click($("printSplit"));
+  await waitFor(() => saved30.length === 3);
+  check("แยกไฟล์พิมพ์ได้ทีละชุดตามที่ติ้ก", saved30.length === 3);
+  check("ชื่อไฟล์แยกเรียงตามลำดับที่จัด", saved30.map((s) => s.n).join(",") === "01_ก.html,02_ข.html,03_ค.html");
+  dropBridge();
+
   console.log("\n==== RESULT: " + pass + " passed, " + fail + " failed ====");
   process.exit(fail ? 1 : 0);
 }

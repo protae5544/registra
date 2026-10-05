@@ -63,6 +63,8 @@
   <button id="btnNext"  type="button" disabled>▶</button>
   <button id="btnLast" type="button" disabled>▶|</button>
   <span class="spacer"></span>
+  <button id="btnFonts" type="button" title="แนบไฟล์ฟอนต์ของคุณ (ฝังลงไฟล์ export ให้อัตโนมัติ)">🔤 ฟอนต์</button>
+  <button id="btnCross" type="button" class="cross-off" title="เป้ากากบาท: แตะวางเป้าที่ตำแหน่งจริง แล้วเลื่อนนิ้วจากตำแหน่งคนละที่ เพื่อไม่ให้นิ้วบังตำแหน่ง">✛ เป้ากากบาท</button>
   <button id="btnSnap" type="button" class="snap-on">⊹ Snap ON</button>
   <button id="btnViewAll" type="button" class="view-all">☰ ทุกหน้า</button>
   <button class="add-btn" type="button" data-add="text">+Text</button>
@@ -87,6 +89,18 @@
         <span style="font-size:11px;font-weight:400;text-transform:none;margin-left:8px;color:var(--muted)">
           แตะ=เลือก · ลาก=ย้าย · จุดกลม=ปรับขนาด
         </span>
+      </div>
+      <div class="coordbar">
+        <span id="coordReadout" class="muted">พิกัด: —</span>
+        <span class="spacer"></span>
+        <select id="crossAnchor" title="จุดยึดของเป้ากากบาท">
+          <option value="tl">เป้าที่มุมซ้ายบน</option>
+          <option value="c">เป้าที่กลางกล่อง</option>
+        </select>
+        <button id="crossNudgeL" type="button" class="mini" title="เลื่อนซ้าย 0.1%">◀.1</button>
+        <button id="crossNudgeU" type="button" class="mini" title="เลื่อนขึ้น 0.1%">▲.1</button>
+        <button id="crossNudgeD" type="button" class="mini" title="เลื่อนลง 0.1%">▼.1</button>
+        <button id="crossNudgeR" type="button" class="mini" title="เลื่อนขวา 0.1%">.1▶</button>
       </div>
       <div class="row" style="margin-top:8px;justify-content:center">
         <button id="btnPgPrev" type="button">◀ หน้าก่อน</button>
@@ -119,6 +133,27 @@
       </div>
     </div>
     <div class="card">
+      <div class="title">ฟอนต์ที่แนบ
+        <span style="font-size:11px;font-weight:400;text-transform:none;margin-left:8px;color:var(--muted)">
+          ฝังลงไฟล์ export ให้อัตโนมัติ
+        </span>
+      </div>
+      <div style="margin-top:8px">
+        <input type="file" id="fontFile" multiple accept=".ttf,.otf,.ttc,.otc,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2">
+        <div class="row" style="margin-top:6px">
+          <button id="fontClear" type="button" class="warn">ลบฟอนต์ทั้งหมด</button>
+          <span id="fontStatus" class="status muted">ยังไม่มีฟอนต์ที่แนบ</span>
+        </div>
+        <div class="grid2"><label>ฟอนต์หลัก</label>
+          <select id="fontDefault"><option value="">ค่าเริ่มต้นเดิม</option></select>
+        </div>
+        <div class="muted" style="font-size:11px;margin-top:4px">
+          รองรับ .ttf .otf .woff .woff2 · แนบได้หลายไฟล์ · ถ้าชื่อไฟล์มี Bold/ตัวหนา จะถูกจับคู่เป็นตัวหนาของครอบครัวเดียวกัน
+        </div>
+        <div class="list" id="fontList" style="max-height:260px"><div class="muted">ยังไม่มีฟอนต์ที่แนบ</div></div>
+      </div>
+    </div>
+    <div class="card">
       <div class="title">Current Record</div>
       <div style="margin-top:8px"><pre id="recordPreview">ยังไม่มีข้อมูล</pre></div>
     </div>
@@ -135,6 +170,7 @@
         <button class="tab active" type="button" data-tab="edit">Object</button>
         <button class="tab" type="button" data-tab="fill">Fill</button>
         <button class="tab" type="button" data-tab="fields">Fields</button>
+        <button class="tab" type="button" data-tab="print">พิมพ์</button>
         <button class="tab" type="button" data-tab="history">History</button>
       </div>
 
@@ -172,6 +208,17 @@
           <div class="ed-row-color"><label>Color</label><input id="edColor" type="color" value="#000000"><span class="muted" style="font-size:11px">text only</span></div>
           <div class="grid2"><label>Image Fit</label>
             <select id="edImageFit"><option value="contain">contain</option><option value="cover">cover</option><option value="fill">fill</option></select>
+          </div>
+          <div class="grid2"><label>Font</label>
+            <select id="edFamily"><option value="">ค่าเริ่มต้นเดิม</option></select>
+          </div>
+          <div class="grid2"><label>ตัวหนา</label>
+            <input id="edBold" type="checkbox"><span class="muted" style="font-size:11px" id="edBoldNote"></span>
+          </div>
+          <div class="grid2"><label>เอียง</label><input id="edItalic" type="checkbox"></div>
+          <div class="grid2"><label>ตัวอักษร</label><input id="edLetter" type="number" step="0.1"></div>
+          <div class="grid2"><label>แนวตั้ง</label>
+            <select id="edValign"><option value="middle">กลาง</option><option value="top">บน</option><option value="bottom">ล่าง</option></select>
           </div>
           <div class="grid2"><label>Font px</label><input id="edFontSize" type="number" step="1"></div>
           <div class="grid2"><label>Line H</label><input id="edLineHeight" type="number" step="0.05"></div>
@@ -215,7 +262,69 @@
         <div class="row" style="margin-top:8px">
           <button id="btnAddField" type="button" class="add-btn">+ เพิ่มฟิลด์ใหม่</button>
         </div>
+        <div class="muted" style="font-size:11px;margin-top:6px">ติ้กช่องข้างฟิลด์เพื่อเลือกหลายฟิลด์พร้อมกัน แล้วปรับค่าทีเดียวด้านล่าง</div>
         <div class="list" id="schemaList"><div class="muted">ยังไม่มี fields</div></div>
+
+        <div class="batchbox" id="batchBox">
+          <div class="row" style="justify-content:space-between">
+            <b style="font-size:12px">ติ้กไว้ <span id="batchCount">0</span> ฟิลด์</b>
+            <span class="row">
+              <button id="batchSelectAll" type="button" class="mini">ติ้กทั้งหมด</button>
+              <button id="batchClearSel" type="button" class="mini">ล้าง</button>
+            </span>
+          </div>
+          <div class="muted" style="font-size:11px;margin:6px 0">ติ้กเฉพาะค่าที่ต้องการเปลี่ยน แล้วกด “ใช้กับที่ติ้กไว้”</div>
+          <div class="brow"><label class="bchk"><input type="checkbox" id="bOnFs">ขนาด</label><input id="bFs" type="number" step="0.5" value="16"></div>
+          <div class="brow"><label class="bchk"><input type="checkbox" id="bOnFamily">ฟอนต์</label><select id="bFamily"><option value="">ค่าเริ่มต้นเดิม</option></select></div>
+          <div class="brow"><label class="bchk"><input type="checkbox" id="bOnBold">ตัวหนา</label><input id="bBold" type="checkbox"><span class="muted" style="font-size:11px" id="bBoldNote"></span></div>
+          <div class="brow"><label class="bchk"><input type="checkbox" id="bOnItalic">เอียง</label><input id="bItalic" type="checkbox"></div>
+          <div class="brow"><label class="bchk"><input type="checkbox" id="bOnLetter">ตัวอักษร</label><input id="bLetter" type="number" step="0.1" value="0"></div>
+          <div class="brow"><label class="bchk"><input type="checkbox" id="bOnLh">ระยะบรรทัด</label><input id="bLh" type="number" step="0.05" value="1.05"></div>
+          <div class="brow"><label class="bchk"><input type="checkbox" id="bOnAlign">จัดแนว</label>
+            <select id="bAlign"><option value="left">left</option><option value="center">center</option><option value="right">right</option></select></div>
+          <div class="brow"><label class="bchk"><input type="checkbox" id="bOnValign">แนวตั้ง</label>
+            <select id="bValign"><option value="middle">กลาง</option><option value="top">บน</option><option value="bottom">ล่าง</option></select></div>
+          <div class="brow"><label class="bchk"><input type="checkbox" id="bOnColor">สี</label><input id="bColor" type="color" value="#111111"></div>
+          <div class="brow"><label class="bchk"><input type="checkbox" id="bOnText">เนื้อหา</label><input id="bText" type="text" placeholder="ค่าตัวอย่าง/เนื้อหา"></div>
+          <div class="brow"><label class="bchk"><input type="checkbox" id="bOnKey">เปลี่ยน Key</label><input id="bKey" type="text" placeholder="ชื่อ key ใหม่"></div>
+          <div class="row" style="margin-top:8px">
+            <button id="batchApply" type="button" class="primary">ใช้กับที่ติ้กไว้</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- PRINT PANE -->
+      <div class="pane" data-pane="print">
+        <div class="title">ลำดับการสั่งพิมพ์</div>
+        <div class="muted" style="font-size:11px;margin-top:4px">
+          ลากที่หูหมาย ⠿ เพื่อจัดลำดับอิสระ · ติ้กเฉพาะรายการที่ต้องการพิมพ์
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button id="printAllCheck" type="button" class="mini">ติ้กทั้งหมด</button>
+          <button id="printNoneCheck" type="button" class="mini">ล้างทั้งหมด</button>
+          <button id="printReset" type="button" class="mini">คืนลำดับเดิม</button>
+        </div>
+        <div class="list" id="printList" style="max-height:300px"></div>
+        <div class="batchbox" style="border-color:#c0d4f8;background:#eef4ff">
+          <div style="font-size:11px;color:#1a5fd0;font-weight:700;margin-bottom:8px">ตั้งชื่อไฟล์ / เลือกคีย์</div>
+          <div class="grid2"><label>คีย์/ดัชนี</label>
+            <select id="printNameKey"><option value="">(ดัชนีลำดับ)</option></select>
+          </div>
+          <div class="grid2"><label>รูปแบบชื่อ</label><input id="printNameTpl" type="text" value="{n}_{key}"></div>
+          <div class="grid2"><label>หน้าที่พิมพ์</label>
+            <select id="printScope"><option value="all">ทุกหน้า</option><option value="current">เฉพาะหน้าปัจจุบัน</option></select>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <button id="printOneFile" type="button" class="primary">สร้างไฟล์พิมพ์</button>
+            <button id="printSplit" type="button">แยกไฟล์ทีละชุด</button>
+            <button id="printNow" type="button">สั่งพิมพ์ทันที</button>
+          </div>
+          <div class="muted" style="font-size:11px;margin-top:6px">
+            โค้ดชื่อ: <code>{i}</code> ลำดับ · <code>{n}</code> ลำดับเต็ม · <code>{key}</code> ค่าคีย์ที่เลือก ·
+            <code>{total}</code> จำนวนรายการ · <code>{date}</code> วันที่
+          </div>
+          <div id="printPreview" class="sample" style="margin-top:6px">ชื่อไฟล์: —</div>
+        </div>
       </div>
 
       <!-- HISTORY PANE -->

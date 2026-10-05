@@ -24,7 +24,17 @@
     pageIdx: 0,
     viewAll: false,
     snap: true,
-    sel: null // {page, id}
+    sel: null, // {page, id}
+    fonts: [], // {id, name, family, weight, italic, format, mime, dataUrl, embed}
+    defaultFamily: "",
+    fieldSel: [], // object ids ที่ติ้กไว้สำหรับปรับหลายฟิลด์พร้อมกัน
+    cross: false, // โหมดเป้ากากบาท
+    crossPos: null, // {x, y} หน่วย % บนหน้า
+    printOrder: null, // ลำดับ record ที่ผู้ใช้จัด (null = ตามธรรมชาติ)
+    printOff: {}, // {recIndex:true} = ไม่เอาพิมพ์ชุดนี้
+    printNameKey: "",
+    printNameTpl: "{n}_{key}",
+    printScope: "all"
   };
   let history = []; // {name, time, thumb, dataUrl}
   let pendingImageAdd = null; // callback สำหรับเลือกรูปเพิ่มเป็น object
@@ -86,6 +96,274 @@
     return set;
   }
 
+  /* ---------------- fonts (ผู้ใช้แนบเอง — ฝังลงไฟล์ export) ---------------- */
+  const FONT_FALLBACK = '"THSarabunNew","Sarabun","Noto Sans Thai","Times New Roman",serif';
+  const FONT_FORMATS = { ttf: "truetype", otf: "opentype", ttc: "truetype", otc: "opentype", woff: "woff", woff2: "woff2" };
+  const FONT_MIMES = { ttf: "font/ttf", otf: "font/otf", ttc: "font/ttf", otc: "font/otf", woff: "font/woff", woff2: "font/woff2" };
+  const STYLE_WORDS = /[-_ ](bold|italic|oblique|regular|book|medium|semibold|demibold|heavy|black|extrabold|ultrabold|thin|light|bd|b|it|blackitalic)(?![a-z])/gi;
+
+  const cssEsc = (s) => String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const pad2 = (n) => (n < 10 ? "0" + n : String(n));
+  function dateStamp() {
+    const d = new Date();
+    return d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate());
+  }
+
+  // อ่านชื่อไฟล์ฟอนต์แยกครอบครัว/น้ำหนัก/สไตล์ เช่น THSarabunNew+Bold.woff2 -> {family:"THSarabunNew", weight:700}
+  function fontInfoFromName(fname) {
+    const name = String(fname || "");
+    const dot = name.lastIndexOf(".");
+    const ext = (dot >= 0 ? name.slice(dot + 1) : "").toLowerCase();
+    const base = (dot >= 0 ? name.slice(0, dot) : name).replace(/\+/g, " ").trim();
+    const italic = /italic|oblique|(^|[-_ ])it($|[-_ ])/i.test(base);
+    const bold = /bold|heavy|black|700|600|(^|[-_ ])(bd|b)(?![a-z])/i.test(base);
+    let family = base.replace(STYLE_WORDS, " ");
+    family = family.replace(/[<>{}]/g, ""); // กันชื่อไฟล์แปลกชี้ไปจนพัง style ในไฟล์ export
+    family = family.replace(/[-_.,#()\[\]]+/g, " ").replace(/\s+/g, " ").trim();
+    if (!family) family = "CustomFont";
+    return {
+      family: family,
+      weight: bold ? 700 : 400,
+      italic: !!italic,
+      format: FONT_FORMATS[ext] || "truetype",
+      mime: FONT_MIMES[ext] || "font/ttf",
+      ext: ext
+    };
+  }
+
+  function fontFamilies() {
+    const out = [];
+    state.fonts.forEach((f) => { if (out.indexOf(f.family) < 0) out.push(f.family); });
+    return out;
+  }
+  function familyHasBold(fam) {
+    return state.fonts.some((f) => f.family === fam && (f.weight >= 600 || f.bold));
+  }
+  // ฟอนต์ที่ object นี้ใช้จริง (fallback ไปฟอนต์หลัก -> ค่าเริ่มต้นเดิม)
+  function familyOf(o) {
+    const fams = fontFamilies();
+    const fam = o && o.family ? o.family : state.defaultFamily;
+    return fam && fams.indexOf(fam) >= 0 ? fam : "";
+  }
+  // ฟอนต์ที่ต้องฝังลงไฟล์ export: ตัวที่ติ้กไว้ + ตัวที่ object ใช้จริง
+  function fontsToEmbed() {
+    const need = [];
+    state.pages.forEach((p) => p.objects.forEach((o) => { const f = familyOf(o); if (f) need.push(f); }));
+    if (state.defaultFamily) need.push(state.defaultFamily);
+    return state.fonts.filter((f) => f.embed || need.indexOf(f.family) >= 0);
+  }
+  function fontFaceCss(list) {
+    return (list || fontsToEmbed()).map((f) => "@font-face{font-family:\"" + cssEsc(f.family) + "\";src:url("
+      + f.dataUrl + ") format(\"" + f.format + "\");font-weight:" + f.weight + ";font-style:"
+      + (f.italic ? "italic" : "normal") + ";font-display:block;}").join("\n");
+  }
+  function syncFontFace() {
+    const style = document.createElement("style");
+    style.id = "userFontCss";
+    style.textContent = fontFaceCss(state.fonts);
+    const old = document.getElementById("userFontCss");
+    if (old) old.remove();
+    document.head.appendChild(style);
+  }
+  function refreshFontSelectors() {
+    const fams = fontFamilies();
+    const apply = (sel, val, blankText) => {
+      if (!sel) return;
+      sel.innerHTML = "";
+      const blank = document.createElement("option");
+      blank.value = "";
+      blank.textContent = blankText;
+      sel.appendChild(blank);
+      fams.forEach((f) => {
+        const op = document.createElement("option");
+        op.value = f;
+        op.textContent = f + (familyHasBold(f) ? " · มีตัวหนา" : "");
+        sel.appendChild(op);
+      });
+      sel.value = val && fams.indexOf(val) >= 0 ? val : "";
+    };
+    apply($("edFamily"), (selected() || {}).family || "", "ค่าเริ่มต้นเดิม");
+    apply($("bFamily"), $("bFamily") ? $("bFamily").value : "", "ค่าเริ่มต้นเดิม");
+    apply($("fontDefault"), state.defaultFamily, "ค่าเริ่มต้นเดิม");
+  }
+
+  async function loadFontFiles(files) {
+    const list = Array.from(files || []).filter(Boolean);
+    if (!list.length) return;
+    loadShow("กำลังอ่านไฟล์ฟอนต์…");
+    try {
+      let added = 0, skipped = 0;
+      for (let i = 0; i < list.length; i++) {
+        const f = list[i];
+        loadProg((i / list.length) * 100, "อ่านฟอนต์ " + f.name);
+        const info = fontInfoFromName(f.name);
+        try {
+          const dataUrl = await readFileDataUrl(f);
+          state.fonts.push({
+            id: uid(), name: f.name, family: info.family, weight: info.weight,
+            italic: info.italic, format: info.format, mime: info.mime, ext: info.ext,
+            dataUrl: dataUrl, embed: true
+          });
+          added++;
+        } catch (err) { skipped++; toast("อ่านฟอนต์ไม่ได้: " + f.name, "err"); }
+      }
+      if (added && !state.defaultFamily) state.defaultFamily = state.fonts[0].family;
+      syncFontFace();
+      renderFonts();
+      refreshFontSelectors();
+      refreshAll();
+      saveDraftSoon();
+      const bolds = fontFamilies().filter(familyHasBold).length;
+      $("fontStatus").textContent = "แนบแล้ว " + state.fonts.length + " ไฟล์"
+        + (bolds ? " · " + bolds + " ครอบครัวมีตัวหนา" : "");
+      $("fontStatus").className = "status ok";
+      toast("แนบฟอนต์ " + added + " ไฟล์ (ฝังลงไฟล์ export อัตโนมัติ)" + (skipped ? " · ข้าม " + skipped : ""), "ok");
+      status("ฟอนต์ที่แนบ: " + state.fonts.map((x) => x.name).join(", "), "ok");
+    } catch (err) {
+      console.error(err);
+      toast("แนบฟอนต์ไม่สำเร็จ: " + err.message, "err");
+    } finally {
+      loadHide();
+    }
+  }
+
+  function clearFonts() {
+    state.fonts = [];
+    state.defaultFamily = "";
+    syncFontFace();
+    renderFonts();
+    refreshFontSelectors();
+    refreshAll();
+    saveDraftSoon();
+    $("fontStatus").textContent = "ยังไม่มีฟอนต์ที่แนบ";
+    $("fontStatus").className = "status muted";
+    toast("ลบฟอนต์ที่แนบทั้งหมดแล้ว");
+  }
+
+  function renderFonts() {
+    const host = $("fontList");
+    if (!host) return;
+    host.innerHTML = "";
+    if (!state.fonts.length) {
+      host.innerHTML = '<div class="muted">ยังไม่มีฟอนต์ที่แนบ — เลือกไฟล์ .ttf/.otf/.woff/.woff2 ได้หลายไฟล์</div>';
+      return;
+    }
+    state.fonts.forEach((f) => {
+      const row = document.createElement("div");
+      row.className = "fontRow" + (f.embed ? "" : " off") + (f.family === state.defaultFamily ? " isdefault" : "");
+
+      const top = document.createElement("div");
+      top.className = "row";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = !!f.embed;
+      cb.title = "ฝังลงไฟล์ export";
+      cb.addEventListener("change", () => {
+        f.embed = cb.checked;
+        syncFontFace();
+        renderFonts();
+        saveDraftSoon();
+      });
+      const nm = document.createElement("div");
+      nm.style.cssText = "flex:1;min-width:0";
+      const n1 = document.createElement("div");
+      n1.className = "fname";
+      n1.textContent = f.family + (f.weight >= 600 ? " · ตัวหนา" : "") + (f.italic ? " · เอียง" : "");
+      const n2 = document.createElement("div");
+      n2.className = "fmeta";
+      const kb = Math.max(1, Math.round((f.dataUrl ? f.dataUrl.length : 0) * 0.75 / 1024));
+      n2.textContent = f.name + " · " + f.ext.toUpperCase() + " · " + kb + " KB"
+        + (familyHasBold(f.family) ? " · ครอบครัวนี้มีตัวหนา" : "");
+      nm.appendChild(n1);
+      nm.appendChild(n2);
+
+      const acts = document.createElement("span");
+      acts.style.cssText = "display:flex;gap:4px";
+      const bDef = document.createElement("button");
+      bDef.type = "button";
+      bDef.className = "mini";
+      bDef.textContent = f.family === state.defaultFamily ? "หลัก" : "ทำหลัก";
+      bDef.addEventListener("click", () => {
+        state.defaultFamily = f.family;
+        refreshFontSelectors();
+        renderFonts();
+        refreshAll();
+        saveDraftSoon();
+      });
+      const bDel = document.createElement("button");
+      bDel.type = "button";
+      bDel.className = "mini warn";
+      bDel.textContent = "ลบ";
+      bDel.addEventListener("click", () => {
+        state.fonts = state.fonts.filter((x) => x.id !== f.id);
+        if (state.defaultFamily === f.family) state.defaultFamily = fontFamilies()[0] || "";
+        syncFontFace();
+        renderFonts();
+        refreshFontSelectors();
+        refreshAll();
+        saveDraftSoon();
+      });
+      acts.appendChild(bDef);
+      acts.appendChild(bDel);
+
+      top.appendChild(cb);
+      top.appendChild(nm);
+      top.appendChild(acts);
+      row.appendChild(top);
+
+      const sm = document.createElement("div");
+      sm.className = "fsample";
+      sm.style.fontFamily = '"' + cssEsc(f.family) + '",' + FONT_FALLBACK;
+      sm.style.fontWeight = String(f.weight);
+      sm.style.fontStyle = f.italic ? "italic" : "normal";
+      sm.textContent = "สมชาย 0123 ABC";
+      row.appendChild(sm);
+
+      host.appendChild(row);
+    });
+  }
+
+  /* ---------------- CSS กลาง: ใช้ทั้งพรีวิวและไฟล์ export ตัวเดียวกัน ---------------- */
+  function pageScale(pageIdx) {
+    const el = document.querySelector('.page[data-idx="' + pageIdx + '"]');
+    return el ? (el.clientWidth || A4.w) / A4.w : 1;
+  }
+  function fontStack(o) {
+    const fam = familyOf(o);
+    return fam ? '"' + cssEsc(fam) + '",' + FONT_FALLBACK : FONT_FALLBACK;
+  }
+  // กล่อง object — geometry/transform เดียวกับไฟล์ export
+  function objBoxCss(o) {
+    return "position:absolute;left:" + round(o.x, 3) + "%;top:" + round(o.y, 3) + "%;"
+      + "width:" + round(o.w, 3) + "%;height:" + round(o.h, 3) + "%;"
+      + "transform:rotate(" + (o.rot || 0) + "deg);transform-origin:center center;"
+      + "z-index:" + (o.z || 1) + ";";
+  }
+  // เนื้อหา — ฟอนต์/ขนาด/จัดแนว/ระยะ (k = สเกลตามความกว้างหน้าที่แสดง)
+  function objContentCss(o, k) {
+    const s = k || 1;
+    const valign = { top: "flex-start", middle: "center", bottom: "flex-end" }[o.valign || "middle"] || "center";
+    const just = { left: "flex-start", center: "center", right: "flex-end" }[o.align || "left"] || "flex-start";
+    const align = o.align || "left";
+    return "width:100%;height:100%;overflow:hidden;display:flex;align-items:" + valign + ";"
+      + "justify-content:" + just + ";color:" + (o.color || "#111111") + ";text-align:" + align + ";"
+      + "font-family:" + fontStack(o) + ";"
+      + "font-size:" + round(Math.max(4, (o.fs || 16) * s), 2) + "px;"
+      + "line-height:" + (o.lh || 1.05) + ";"
+      + "font-weight:" + (o.bold ? 700 : 400) + ";"
+      + "font-style:" + (o.italic ? "italic" : "normal") + ";"
+      + "letter-spacing:" + round((o.ls || 0) * s, 2) + "px;"
+      + (o.type === "text" ? "padding:0 4px;" : "")
+      + "white-space:pre-wrap;word-break:break-word;";
+  }
+  // ขนาดหน้าเป็นมิลลิเมตร (อิงสูง 297mm) เพื่อรายงานพิกัดแบบเดียวกับงานพิมพ์
+  function pageMm(pageIdx) {
+    const pg = state.pages[pageIdx];
+    const ar = pg && pg.bg ? (pg.bg.w / pg.bg.h) : (A4.w / A4.h);
+    const hMm = 297;
+    return { wMm: Math.round(hMm * ar * 100) / 100, hMm: hMm };
+  }
+
   /* ---------------- rendering ---------------- */
   function renderPages() {
     const wrap = $("canvasWrap");
@@ -117,6 +395,11 @@
       guide.className = "guideLayer";
       pageEl.appendChild(guide);
 
+      const cross = document.createElement("div");
+      cross.className = "crossLayer";
+      pageEl.appendChild(cross);
+      pageEl.classList.toggle("cross-on", state.cross);
+
       const layer = document.createElement("div");
       layer.className = "objLayer";
       pg.objects.forEach((o) => layer.appendChild(buildObj(o, idx, rec)));
@@ -136,15 +419,11 @@
     el.dataset.id = o.id;
     el.dataset.type = o.type;
     el.dataset.align = o.align || "left";
-    el.style.left = o.x + "%";
-    el.style.top = o.y + "%";
-    el.style.width = o.w + "%";
-    el.style.height = o.h + "%";
-    el.style.transform = "rotate(" + (o.rot || 0) + "deg)";
-    el.style.zIndex = String(o.z || 1);
+    el.style.cssText = objBoxCss(o);
 
     const content = document.createElement("div");
     content.className = "content";
+    content.style.cssText = objContentCss(o, pageScale(pageIdx));
     fillContent(content, o, rec);
     el.appendChild(content);
 
@@ -203,7 +482,7 @@
     content.appendChild(span);
   }
 
-  // ปรับขนาดฟอนต์ตามความกว้างหน้าจริง (เทียบกับฐาน 794px) กันภาพย่อแล้วฟอนต์เหลือ
+  // ปรับสเกลตามความกว้างหน้าจริง (เทียบกับฐาน 794px) โดยใช้ CSS ชุดเดียวกับไฟล์ export
   function fitFonts() {
     const wrap = $("canvasWrap");
     wrap.querySelectorAll(".page").forEach((pageEl) => {
@@ -215,9 +494,10 @@
         const o = pg.objects.find((x) => x.id === el.dataset.id);
         if (!o) return;
         const c = el.querySelector(".content");
-        if (c && o.type === "text") c.style.fontSize = Math.max(8, (o.fs || 16) * k) + "px";
+        if (c) c.style.cssText = objContentCss(o, k);
       });
     });
+    renderCrosshair();
   }
 
   function updateSelDom() {
@@ -239,7 +519,7 @@
     $("editor").style.display = o ? "block" : "none";
     $("noSelection").style.display = o ? "none" : "block";
     $("sumSelected").textContent = o ? "1" : "0";
-    if (!o) return;
+    if (!o) { updateBoldNote(); renderCrosshair(); return; }
     $("edX").value = round(o.x, 2);
     $("edY").value = round(o.y, 2);
     $("edW").value = round(o.w, 2);
@@ -255,6 +535,28 @@
     $("edRotation").value = o.rot || 0;
     $("edLockAspect").checked = !!o.lockAspect;
     $("edLocked").checked = !!o.locked;
+    $("edLetter").value = round(o.ls || 0, 2);
+    $("edItalic").checked = !!o.italic;
+    $("edValign").value = o.valign || "middle";
+    $("edBold").checked = !!o.bold;
+    refreshFontSelectors();
+    updateBoldNote();
+    renderCrosshair();
+  }
+
+  // เตือนถ้าฟอนต์ที่เลือกไม่มีตัวหนาจริง (เรนเดอร์จะไม่หนาตามที่ตั้ง)
+  function updateBoldNote() {
+    const o = selected();
+    const fam = familyOf(o || {});
+    const note = $("edBoldNote");
+    if (note) {
+      note.textContent = !o || !o.bold || !fam ? "" : (familyHasBold(fam) ? "· ฟอนต์นี้มีตัวหนา" : "· ฟอนต์นี้ไม่มีตัวหนา");
+    }
+    const bn = $("bBoldNote");
+    if (bn) {
+      const bf = $("bFamily") ? $("bFamily").value : "";
+      bn.textContent = bf ? (familyHasBold(bf) ? "· มีตัวหนา" : "· ไม่มีตัวหนา") : "";
+    }
   }
 
   function renderCounters() {
@@ -263,6 +565,7 @@
     $("sumRecords").textContent = String(state.records.length);
     $("sumFields").textContent = String(fields);
     $("sumObjects").textContent = String(objs);
+    if ($("batchCount")) $("batchCount").textContent = String(state.fieldSel.length);
     $("recordCounter").innerHTML = state.records.length
       ? "<b>" + (state.recIdx + 1) + "/" + state.records.length + "</b>"
       : "<b>—/—</b>";
@@ -296,7 +599,18 @@
         row.className = "item" + (state.sel && state.sel.id === o.id ? " sel" : "");
 
         const head = document.createElement("div");
-        head.className = "itemhead";
+        head.className = "itemhead fhead";
+
+        const pick = document.createElement("input");
+        pick.type = "checkbox";
+        pick.checked = state.fieldSel.indexOf(o.id) >= 0;
+        pick.title = "ติ้กเพื่อไปปรับหลายฟิลด์พร้อมกัน";
+        pick.addEventListener("change", () => {
+          const at = state.fieldSel.indexOf(o.id);
+          if (pick.checked && at < 0) state.fieldSel.push(o.id);
+          if (!pick.checked && at >= 0) state.fieldSel.splice(at, 1);
+          renderCounters();
+        });
 
         const keyIn = document.createElement("input");
         keyIn.type = "text";
@@ -323,6 +637,7 @@
         acts.appendChild(bSel);
         acts.appendChild(bDel);
 
+        head.appendChild(pick);
         head.appendChild(keyIn);
         head.appendChild(chip);
         head.appendChild(acts);
@@ -330,7 +645,8 @@
 
         const sample = document.createElement("div");
         sample.className = "sample";
-        sample.textContent = "ข้อความ: " + (o.text || "-") + " · ตำแหน่ง: " + round(o.x, 1) + "%, " + round(o.y, 1) + "%";
+        sample.textContent = "ข้อความ: " + (o.text || "-") + " · ตำแหน่ง: " + round(o.x, 1) + "%, " + round(o.y, 1) + "%"
+          + " · " + (familyOf(o) || "ฟอนต์ปกติ") + (o.bold ? " · ตัวหนา" : "") + " · " + (o.fs || 16) + "px";
         row.appendChild(sample);
 
         row.addEventListener("click", (e) => {
@@ -421,6 +737,7 @@
     renderEditor();
     renderFields();
     renderFill();
+    renderPrint();
   }
 
   /* ---------------- selection / drag / resize ---------------- */
@@ -438,6 +755,7 @@
     if (state.viewAll) return;
     const pageEl = e.target.closest(".page");
     if (!pageEl) return;
+    if (state.cross) { crossPointerDown(e, pageEl); return; }
     const objEl = e.target.closest(".obj");
     if (!objEl) { select(-1, null); return; }
     const idx = +pageEl.dataset.idx;
@@ -462,8 +780,33 @@
     e.preventDefault();
   }
 
+  function crossPointerDown(e, pageEl) {
+    const idx = +pageEl.dataset.idx;
+    const rect = pageEl.getBoundingClientRect();
+    if (idx !== state.pageIdx) { state.pageIdx = idx; state.sel = null; renderEditor(); renderCounters(); updateSelDom(); }
+    const px = rect.width ? ((e.clientX - rect.left) / rect.width) * 100 : 50;
+    const py = rect.height ? ((e.clientY - rect.top) / rect.height) * 100 : 50;
+    drag = {
+      mode: "cross", page: idx, pageEl: pageEl, rect: rect,
+      sx: e.clientX, sy: e.clientY,
+      ox: state.crossPos ? state.crossPos.x : px,
+      oy: state.crossPos ? state.crossPos.y : py,
+      moved: false
+    };
+    e.preventDefault();
+  }
+
   function onPointerMove(e) {
     if (!drag) return;
+    if (drag.mode === "cross") {
+      if (!drag.moved && Math.abs(e.clientX - drag.sx) < 3 && Math.abs(e.clientY - drag.sy) < 3) return;
+      drag.moved = true;
+      const dx = drag.rect.width ? ((e.clientX - drag.sx) / drag.rect.width) * 100 : 0;
+      const dy = drag.rect.height ? ((e.clientY - drag.sy) / drag.rect.height) * 100 : 0;
+      const s = snapPoint(drag.ox + dx, drag.oy + dy, drag.page);
+      setCross(s.x, s.y);
+      return;
+    }
     const o = getObj(drag.page, drag.id);
     if (!o) return;
     const dx = ((e.clientX - drag.sx) / drag.rect.width) * 100;
@@ -502,8 +845,29 @@
     syncEditorPos();
   }
 
-  function onPointerUp() {
+  function onPointerUp(e) {
     if (!drag) return;
+    if (drag.mode === "cross") {
+      if (!drag.moved) {
+        // แตะสั้น = วางเป้าที่จุดที่แตะจริง
+        const rect = drag.rect;
+        const px = rect.width ? ((e.clientX - rect.left) / rect.width) * 100 : drag.ox;
+        const py = rect.height ? ((e.clientY - rect.top) / rect.height) * 100 : drag.oy;
+        const s = snapPoint(px, py, drag.page);
+        const pi = drag.page;
+        drag = null;
+        setCross(s.x, s.y);
+        drawGuides(null);
+        status("วางเป้าที่ " + coordText(s.x, s.y, pi), "ok");
+        saveDraftSoon();
+        return;
+      }
+      drag = null;
+      drawGuides(null);
+      saveDraftSoon();
+      status("เลื่อนเป้าด้วยการลาก (นิ้วอยู่คนละตำแหน่งกับเป้า)", "ok");
+      return;
+    }
     const el = document.querySelector('.obj[data-id="' + drag.id + '"]');
     if (el) el.classList.remove("dragging");
     drawGuides(null);
@@ -512,13 +876,12 @@
   }
 
   function applyObjDom(o) {
+    if (!state.sel) return;
     const el = document.querySelector('.page[data-idx="' + state.sel.page + '"] .obj[data-id="' + o.id + '"]');
     if (!el) return;
-    el.style.left = o.x + "%";
-    el.style.top = o.y + "%";
-    el.style.width = o.w + "%";
-    el.style.height = o.h + "%";
-    el.style.transform = "rotate(" + (o.rot || 0) + "deg)";
+    el.style.cssText = objBoxCss(o);
+    const c = el.querySelector(".content");
+    if (c) c.style.cssText = objContentCss(o, pageScale(state.sel.page));
   }
 
   function syncEditorPos() {
@@ -578,6 +941,112 @@
     });
   }
 
+  /* ---------------- เป้ากากบาท (crosshair) วางตำแหน่งแบบสัมพัทธ์ ----------------
+     แตะสั้น = วางเป้าที่ตำแหน่งจริง · จากนั้นลากนิ้วจากตำแหน่งคนละที่
+     เป้าจะเลื่อนตามนิ้ว แต่สายตาดูที่เป้า ไม่ใช่ที่นิ้ว -> กดพิกัดแม่นขึ้น */
+  function crossAnchorMode() { return $("crossAnchor") ? $("crossAnchor").value : "tl"; }
+  function pageAspect(pageIdx) {
+    const pg = state.pages[pageIdx];
+    return pg && pg.bg ? (pg.bg.w / pg.bg.h) : (A4.w / A4.h);
+  }
+  function toggleCross(on) {
+    state.cross = on == null ? !state.cross : !!on;
+    $("btnCross").className = state.cross ? "cross-on" : "cross-off";
+    $("btnCross").textContent = state.cross ? "✛ เป้ากากบาท ON" : "✛ เป้ากากบาท";
+    if (state.cross) {
+      const o = selected();
+      if (!state.crossPos) {
+        state.crossPos = o ? { x: round(o.x, 3), y: round(o.y, 3) } : { x: 50, y: 50 };
+      }
+      renderCrosshair();
+      toast("เป้ากากบาท ON — แตะวางเป้าที่จุดจริง แล้วเลื่อนนิ้วจากตำแหน่งอื่น", "ok");
+    } else {
+      renderCrosshair();
+      toast("เป้ากากบาท OFF");
+    }
+  }
+  function applyCrossToObj(o) {
+    const c = state.crossPos;
+    if (!o || !c) return;
+    const center = crossAnchorMode() === "c";
+    o.x = round(clamp(center ? c.x - o.w / 2 : c.x, -o.w + 2, 98), 3);
+    o.y = round(clamp(center ? c.y - o.h / 2 : c.y, -o.h + 2, 98), 3);
+    applyObjDom(o);
+    syncEditorPos();
+  }
+  function setCross(x, y, apply) {
+    state.crossPos = { x: round(clamp(x, 0, 100), 3), y: round(clamp(y, 0, 100), 3) };
+    if (apply !== false) applyCrossToObj(selected());
+    renderCrosshair();
+  }
+  function snapPoint(x, y, pageIdx) {
+    if (!state.snap) return { x: x, y: y };
+    const tol = 1;
+    const pg = state.pages[pageIdx == null ? state.pageIdx : pageIdx];
+    const sel = selected();
+    const tx = [0, 50, 100], ty = [0, 50, 100];
+    if (pg) pg.objects.forEach((t) => {
+      if (sel && t.id === sel.id) return;
+      tx.push(t.x, t.x + t.w, t.x + t.w / 2);
+      ty.push(t.y, t.y + t.h, t.y + t.h / 2);
+    });
+    const best = (v, list) => {
+      let b = null;
+      list.forEach((t) => {
+        const d = t - v;
+        if (Math.abs(d) <= tol && (!b || Math.abs(d) < Math.abs(b.d))) b = { d: d };
+      });
+      return b ? v + b.d : v;
+    };
+    return { x: best(x, tx), y: best(y, ty) };
+  }
+  function coordText(x, y, pageIdx) {
+    const mm = pageMm(pageIdx);
+    const hPx = A4.w / pageAspect(pageIdx);
+    return "X " + round(x, 2) + "% · " + round(x / 100 * mm.wMm, 1) + "mm · " + round(x / 100 * A4.w, 1) + "px"
+      + "   Y " + round(y, 2) + "% · " + round(y / 100 * mm.hMm, 1) + "mm · " + round(y / 100 * hPx, 1) + "px";
+  }
+  function renderCrosshair() {
+    document.querySelectorAll(".page").forEach((p) => p.classList.toggle("cross-on", state.cross));
+    const ro = $("coordReadout");
+    const host = document.querySelector('.page[data-idx="' + state.pageIdx + '"] .crossLayer');
+    const o = selected();
+    if (ro) {
+      if (state.cross && state.crossPos) ro.textContent = coordText(state.crossPos.x, state.crossPos.y, state.pageIdx);
+      else if (o) ro.textContent = "object: " + coordText(o.x, o.y, state.sel.page);
+      else ro.textContent = state.cross ? "พิกัด: แตะหน้าเพื่อวางเป้า" : "พิกัด: —";
+    }
+    if (!host) return;
+    host.innerHTML = "";
+    if (!state.cross || !state.crossPos) return;
+    const x = state.crossPos.x, y = state.crossPos.y;
+    const v = document.createElement("div");
+    v.className = "cl v";
+    v.style.left = x + "%";
+    const h = document.createElement("div");
+    h.className = "cl h";
+    h.style.top = y + "%";
+    const m = document.createElement("div");
+    m.className = "cm";
+    m.style.left = x + "%";
+    m.style.top = y + "%";
+    const tag = document.createElement("div");
+    tag.className = "crossTag";
+    tag.style.left = x + "%";
+    tag.style.top = y + "%";
+    tag.style.transform = "translate(-50%,-190%)";
+    tag.textContent = "X " + round(x, 2) + "% · Y " + round(y, 2) + "%";
+    host.appendChild(v);
+    host.appendChild(h);
+    host.appendChild(m);
+    host.appendChild(tag);
+  }
+  function nudgeCross(dx, dy) {
+    if (!state.crossPos) { setCross(50, 50); return; }
+    setCross(state.crossPos.x + dx, state.crossPos.y + dy); // ขยับละเอียด ไม่ snap
+    saveDraftSoon();
+  }
+
   /* ---------------- object CRUD ---------------- */
   function addObject(type, extra) {
     const pg = curPage();
@@ -585,8 +1054,9 @@
     const z = maxZ(pg) + 1;
     const base = {
       id: uid(), type: type, key: "", text: "",
-      x: 15, y: 10, w: 40, h: 6, rot: 0, fs: 16, lh: 1.05,
-      align: "left", color: "#111111", fit: "contain",
+      x: 15, y: 10, w: 40, h: 6, rot: 0, fs: 16, lh: 1.05, ls: 0,
+      align: "left", valign: "middle", color: "#111111", fit: "contain",
+      family: "", bold: false, italic: false,
       lockAspect: false, locked: false, z: z, src: ""
     };
     if (type === "image") { base.w = 25; base.h = 25; base.y = 35; }
@@ -845,6 +1315,326 @@
     saveDraftSoon();
   }
 
+  /* ---------------- ปรับหลายฟิลด์พร้อมกัน (ติ้กเลือก) ---------------- */
+  function selectedObjs() {
+    const out = [];
+    if (!state.fieldSel.length) return out;
+    state.pages.forEach((p, pi) => p.objects.forEach((o) => {
+      if (state.fieldSel.indexOf(o.id) >= 0) out.push({ o: o, pi: pi });
+    }));
+    return out;
+  }
+  function batchApply() {
+    const targets = selectedObjs();
+    if (!targets.length) { toast("ติ้กฟิลด์ที่จะปรับก่อน (ช่องข้างชื่อฟิลด์)", "err"); return; }
+    const on = (id) => $(id) && $(id).checked;
+    const specs = [];
+    if (on("bOnFs")) specs.push(["ขนาด", (o) => { o.fs = clamp(parseFloat($("bFs").value) || 16, 4, 200); }]);
+    if (on("bOnFamily")) specs.push(["ฟอนต์", (o) => { o.family = $("bFamily").value || ""; }]);
+    if (on("bOnBold")) specs.push(["ตัวหนา", (o) => { o.bold = !!$("bBold").checked; }]);
+    if (on("bOnItalic")) specs.push(["เอียง", (o) => { o.italic = !!$("bItalic").checked; }]);
+    if (on("bOnLetter")) specs.push(["ตัวอักษร", (o) => { o.ls = parseFloat($("bLetter").value) || 0; }]);
+    if (on("bOnLh")) specs.push(["ระยะบรรทัด", (o) => { o.lh = clamp(parseFloat($("bLh").value) || 1.05, 0.4, 5); }]);
+    if (on("bOnAlign")) specs.push(["จัดแนว", (o) => { o.align = $("bAlign").value; }]);
+    if (on("bOnValign")) specs.push(["แนวตั้ง", (o) => { o.valign = $("bValign").value; }]);
+    if (on("bOnColor")) specs.push(["สี", (o) => { o.color = $("bColor").value || "#111111"; }]);
+    if (on("bOnText")) specs.push(["เนื้อหา", (o) => { o.text = $("bText").value; }]);
+    if (on("bOnKey")) specs.push(["Key", (o) => { o.key = $("bKey").value.trim(); }]);
+    if (!specs.length) { toast("ติ้กค่าที่ต้องการเปลี่ยนอย่างน้อย 1 ค่า", "err"); return; }
+
+    const warnBold = on("bOnBold") && $("bBold").checked;
+    targets.forEach((t) => {
+      if (t.o.type !== "text" && t.o.type !== "qr") { specs.forEach((s) => s[1](t.o)); return; }
+      specs.forEach((s) => s[1](t.o));
+    });
+    refreshAll();
+    saveDraftSoon();
+    const names = specs.map((s) => s[0]).join(", ");
+    toast("ปรับ " + targets.length + " ฟิลด์: " + names, "ok");
+    status("ปรับค่า " + names + " ให้ " + targets.length + " ฟิลด์ที่ติ้กไว้", "ok");
+    if (warnBold) {
+      const missing = [];
+      targets.forEach((t) => { const f = familyOf(t.o); if (t.o.bold && f && !familyHasBold(f) && missing.indexOf(f) < 0) missing.push(f); });
+      if (missing.length) toast("เตือน: ฟอนต์ " + missing.join(", ") + " ที่แนบมาไม่มีตัวหนาจริง", "err");
+    }
+  }
+
+  /* ---------------- ลำดับการสั่งพิมพ์ + ตั้งชื่อไฟล์ ---------------- */
+  function printIndexes() {
+    const n = state.records.length;
+    const seen = {};
+    const out = [];
+    if (Array.isArray(state.printOrder)) state.printOrder.forEach((i) => {
+      const k = Number(i);
+      if (Number.isInteger(k) && k >= 0 && k < n && !seen[k]) { seen[k] = 1; out.push(k); }
+    });
+    for (let i = 0; i < n; i++) if (!seen[i]) out.push(i);
+    state.printOrder = out;
+    return out;
+  }
+  function printSelected() {
+    return printIndexes().filter((i) => !state.printOff[i]);
+  }
+  function printPages() {
+    return state.printScope === "current" ? [state.pageIdx] : state.pages.map((_, i) => i);
+  }
+  function printNameFor(recIdx, pos, total) {
+    const rec = state.records[recIdx];
+    const key = state.printNameKey;
+    const kv = key ? (rec && rec[key] != null && String(rec[key]) !== "" ? String(rec[key]) : "") : "";
+    const tpl = state.printNameTpl || "{n}_{key}";
+    const sub = (s) => () => s;
+    const out = String(tpl)
+      .replace(/\{n\}/g, sub(pad2(pos)))
+      .replace(/\{i\}/g, sub(String(recIdx + 1)))
+      .replace(/\{key\}/g, sub(kv || ("r" + (recIdx + 1))))
+      .replace(/\{total\}/g, sub(String(total)))
+      .replace(/\{date\}/g, sub(dateStamp()));
+    const safe = out.replace(/[\\/:*?"<>|\r\n\t]+/g, "-").replace(/\s+/g, "_")
+      .replace(/_+/g, "_").replace(/^[_\-.]+|_[_\-.]+$/g, "").slice(0, 80);
+    return safe || ("template_" + dateStamp());
+  }
+  let printKeySig = "";
+  function renderPrintNameOptions() {
+    const sel = $("printNameKey");
+    if (!sel) return;
+    const cur = sel.value;
+    const keys = allKeys();
+    const sig = keys.join("|");
+    if (sig !== printKeySig) { // สร้างรายการใหม่เฉพาะตอนชุดคีย์เปลี่ยน ไม่ให้ตัวเลือกกระตุกตอนเปิดค้างอยู่
+      printKeySig = sig;
+      sel.innerHTML = "";
+      const idxOpt = document.createElement("option");
+      idxOpt.value = "";
+      idxOpt.textContent = "(ดัชนีลำดับ)";
+      sel.appendChild(idxOpt);
+      keys.forEach((k) => {
+        const op = document.createElement("option");
+        op.value = k;
+        op.textContent = k;
+        sel.appendChild(op);
+      });
+    }
+    sel.value = keys.indexOf(cur) >= 0 ? cur : (state.printNameKey || "");
+  }
+  function updatePrintPreview() {
+    const box = $("printPreview");
+    if (!box) return;
+    const sel = printSelected();
+    if (!sel.length) { box.textContent = "ยังไม่มีรายการที่ติ้กไว้"; return; }
+    const names = sel.slice(0, 3).map((ri, i) => printNameFor(ri, i + 1, sel.length) + ".html");
+    box.textContent = "ติ้กไว้ " + sel.length + " ชุด → " + names.join(" , ") + (sel.length > 3 ? " …" : "");
+  }
+  function movePrintRow(pos, to) {
+    const ord = printIndexes();
+    if (to < 0 || to >= ord.length || pos === to) return;
+    const item = ord.splice(pos, 1)[0];
+    ord.splice(to, 0, item);
+    state.printOrder = ord;
+    renderPrint();
+    saveDraftSoon();
+  }
+  function renderPrint() {
+    const host = $("printList");
+    if (!host) return;
+    renderPrintNameOptions();
+    const ord = printIndexes();
+    host.innerHTML = "";
+    if (!ord.length) {
+      host.innerHTML = '<div class="muted">ยังไม่มีชุดข้อมูล — นำเข้า JSON ก่อน</div>';
+      updatePrintPreview();
+      return;
+    }
+    ord.forEach((ri, pos) => {
+      const rec = state.records[ri];
+      const off = !!state.printOff[ri];
+      const row = document.createElement("div");
+      row.className = "prow" + (ri === state.recIdx ? " sel" : "") + (off ? " off" : "");
+      row.dataset.pos = String(pos);
+
+      const handle = document.createElement("div");
+      handle.className = "handle";
+      handle.title = "ลากเพื่อจัดลำดับการพิมพ์";
+      handle.textContent = "⠿";
+
+      const idx = document.createElement("div");
+      idx.className = "idx";
+      idx.textContent = String(pos + 1);
+
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = !off;
+      cb.title = "รวมชุดนี้ในการพิมพ์";
+      cb.addEventListener("change", () => {
+        if (cb.checked) delete state.printOff[ri];
+        else state.printOff[ri] = true;
+        row.classList.toggle("off", !cb.checked);
+        updatePrintPreview();
+        saveDraftSoon();
+      });
+
+      const lab = document.createElement("div");
+      lab.className = "plabel";
+      const key = state.printNameKey;
+      const nm = key && rec && rec[key] != null && String(rec[key]) !== "" ? String(rec[key]) : "";
+      lab.textContent = (nm || "ชุดที่ " + (ri + 1)) + "  ·  " + (rec ? Object.keys(rec).length + " ฟิลด์" : "ว่าง");
+      lab.title = rec ? JSON.stringify(rec) : "";
+
+      const acts = document.createElement("div");
+      acts.style.cssText = "display:flex;gap:4px";
+      const mk = (label, title, fn) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "mini";
+        b.textContent = label;
+        b.title = title;
+        b.addEventListener("click", fn);
+        acts.appendChild(b);
+        return b;
+      };
+      mk("▲", "ขึ้น", () => movePrintRow(pos, pos - 1)).disabled = pos === 0;
+      mk("▼", "ลง", () => movePrintRow(pos, pos + 1)).disabled = pos === ord.length - 1;
+      mk("ดู", "ไปที่ชุดนี้", () => gotoRecord(ri));
+
+      row.appendChild(handle);
+      row.appendChild(idx);
+      const mid = document.createElement("div");
+      mid.style.cssText = "display:flex;align-items:center;gap:6px;min-width:0";
+      mid.appendChild(cb);
+      mid.appendChild(lab);
+      row.appendChild(mid);
+      row.appendChild(acts);
+      host.appendChild(row);
+    });
+    updatePrintPreview();
+  }
+
+  // ลากจัดลำดับด้วยนิ้ว (ทำงานบนมือถือ) — ลากที่หูหมาย ⠿
+  function wireSortable(listEl) {
+    let st = null;
+    const rowH = (row) => {
+      const r = row.getBoundingClientRect ? row.getBoundingClientRect() : null;
+      return (r && r.height) || row.offsetHeight || 40;
+    };
+    listEl.addEventListener("pointerdown", (e) => {
+      const h = e.target.closest(".handle");
+      if (!h) return;
+      const row = h.closest(".prow");
+      if (!row) return;
+      const rows = Array.prototype.slice.call(listEl.querySelectorAll(".prow"));
+      st = { row: row, rows: rows, startY: e.clientY, from: rows.indexOf(row), to: rows.indexOf(row), h: rowH(row), moved: false };
+      row.classList.add("dragging");
+      try { h.setPointerCapture(e.pointerId); } catch (err) {}
+      e.preventDefault();
+    });
+    window.addEventListener("pointermove", (e) => {
+      if (!st) return;
+      const dy = e.clientY - st.startY;
+      if (!st.moved && Math.abs(dy) < 3) return;
+      st.moved = true;
+      const listRect = listEl.getBoundingClientRect();
+      const top0 = listRect && listRect.height ? listRect.top : 0;
+      let target = 0;
+      st.rows.forEach((row, i) => {
+        const mid = top0 + i * st.h + st.h / 2;
+        if (e.clientY >= mid) target = i;
+      });
+      target = clamp(target, 0, st.rows.length - 1);
+      st.row.style.transform = "translateY(" + dy + "px)";
+      st.rows.forEach((row, i) => {
+        if (row === st.row) return;
+        let shift = 0;
+        if (st.from < i && i <= target) shift = -st.h;
+        else if (target <= i && i < st.from) shift = st.h;
+        row.style.transform = shift ? "translateY(" + shift + "px)" : "";
+      });
+      st.to = target;
+    });
+    window.addEventListener("pointerup", () => {
+      if (!st) return;
+      const cur = st;
+      st = null;
+      cur.row.classList.remove("dragging");
+      cur.rows.forEach((r) => { r.style.transform = ""; });
+      if (cur.moved && cur.to !== cur.from) {
+        const ord = printIndexes();
+        const item = ord.splice(cur.from, 1)[0];
+        ord.splice(cur.to, 0, item);
+        state.printOrder = ord;
+        renderPrint();
+        saveDraftSoon();
+        status("จัดลำดับการพิมพ์แล้ว (ลากจาก " + (cur.from + 1) + " ไป " + (cur.to + 1) + ")", "ok");
+      }
+    });
+  }
+
+  async function buildPrintFiles(split) {
+    const sel = printSelected();
+    if (!sel.length) { toast("ติ้กชุดข้อมูลที่ต้องการพิมพ์ก่อน", "err"); return; }
+    loadShow("กำลังสร้างไฟล์พิมพ์…");
+    try {
+      await ensureFonts();
+      const pages = printPages();
+      if (split) {
+        for (let i = 0; i < sel.length; i++) {
+          loadProg((i / sel.length) * 100, "สร้างไฟล์ " + (i + 1) + "/" + sel.length);
+          const html = buildExportHtml({ order: [sel[i]], pages: pages });
+          downloadBlob(new Blob([html], { type: "text/html;charset=utf-8" }), printNameFor(sel[i], i + 1, sel.length) + ".html");
+          await new Promise((r) => setTimeout(r, 120));
+        }
+        toast("สร้างไฟล์พิมพ์ " + sel.length + " ไฟล์ (แยกตามชื่อที่ตั้ง)", "ok");
+      } else {
+        const html = buildExportHtml({ order: sel, pages: pages });
+        const name = printNameFor(sel[0], 1, sel.length) + "-all-" + pad2(sel.length) + ".html";
+        downloadBlob(new Blob([html], { type: "text/html;charset=utf-8" }), name);
+        toast("สร้างไฟล์พิมพ์รวม " + sel.length + " ชุดตามลำดับที่จัด", "ok");
+        status("ไฟล์พิมพ์: " + name, "ok");
+      }
+    } catch (err) {
+      console.error(err);
+      toast("สร้างไฟล์พิมพ์ไม่สำเร็จ: " + err.message, "err");
+    } finally {
+      loadHide();
+    }
+  }
+
+  function printNow() {
+    const sel = printSelected();
+    if (!sel.length) { toast("ติ้กชุดข้อมูลที่ต้องการพิมพ์ก่อน", "err"); return; }
+    const pages = printPages();
+    const frame = document.createElement("iframe");
+    frame.style.cssText = "position:fixed;right:0;bottom:0;width:1px;height:1px;opacity:0;border:0";
+    document.body.appendChild(frame);
+    let i = 0;
+    const next = () => {
+      if (i >= sel.length) {
+        frame.remove();
+        toast("ส่งคิวพิมพ์ครบ " + sel.length + " ชุดแล้ว", "ok");
+        status("สั่งพิมพ์ " + sel.length + " ชุดตามลำดับที่จัด", "ok");
+        return;
+      }
+      const name = printNameFor(sel[i], i + 1, sel.length);
+      const html = buildExportHtml({ order: [sel[i]], pages: pages });
+      i++;
+      try {
+        const doc = frame.contentWindow.document;
+        doc.open();
+        doc.write(html);
+        doc.close();
+        if (typeof frame.contentWindow.focus === "function") frame.contentWindow.focus();
+        frame.contentWindow.print();
+        toast("สั่งพิมพ์ชุด " + i + "/" + sel.length + " — " + name, "ok");
+      } catch (err) {
+        console.error(err);
+        frame.remove();
+        toast("สั่งพิมพ์ไม่ได้: " + err.message + " — ลองใช้ปุ่ม สร้างไฟล์พิมพ์ แล้วเปิดไฟล์", "err");
+        return;
+      }
+      setTimeout(next, 1500);
+    };
+    next();
+  }
+
   /* ---------------- export ---------------- */
   function androidBridge() {
     return (typeof window !== "undefined" && window.ChbAndroid && typeof window.ChbAndroid.saveBase64 === "function")
@@ -905,7 +1695,17 @@
   }
 
   async function ensureFonts() {
-    try { if (document.fonts && document.fonts.ready) await document.fonts.ready; } catch (e) {}
+    try {
+      if (document.fonts && document.fonts.load) {
+        const specs = [];
+        state.pages.forEach((p) => p.objects.forEach((o) => {
+          const fam = familyOf(o);
+          if (fam) specs.push('700 16px "' + fam + '"', '400 16px "' + fam + '"');
+        }));
+        await Promise.all(specs.map((s) => Promise.resolve(document.fonts.load(s)).catch(() => null)));
+      }
+      if (document.fonts && document.fonts.ready) await document.fonts.ready;
+    } catch (e) { /* ฟอนต์โหลดไม่ได้ — ใช้ค่าเริ่มต้นเดิม */ }
   }
 
   async function capturePage(pageIdx) {
@@ -992,14 +1792,16 @@
 
   function exportLayout() {
     const obj = {
-      v: 2,
+      v: 3,
       pages: state.pages,
       records: state.records,
       pageIdx: state.pageIdx,
-      recIdx: state.recIdx
+      recIdx: state.recIdx,
+      fonts: state.fonts,
+      defaultFamily: state.defaultFamily
     };
     downloadJson(obj, "overlay_layout.json");
-    toast("Export layout แล้ว", "ok");
+    toast("Export layout แล้ว (รวมฟอนต์ที่แนบ)", "ok");
   }
 
   /* ---- Export HTML: ไฟล์ยืนยันตัวตนเปิดในเบราว์เซอร์แล้ว พิมพ์/บันทึกเป็น PDF ----
@@ -1021,29 +1823,42 @@
     }
   }
 
-  function buildExportHtml() {
+  function buildExportHtml(opts) {
+    const o = opts || {};
+    const pageList = o.pages && o.pages.length ? o.pages : state.pages.map((_, i) => i);
+    const recList = o.order && o.order.length ? o.order
+      : (state.records.length ? state.records.map((_, i) => i) : [-1]);
+
     const bgs = state.pages.map((p) => (p.bg && p.bg.src ? p.bg.src : null));
     const ars = state.pages.map((p) => (p.bg ? p.bg.w / p.bg.h : A4.w / A4.h));
-    const pageObjs = state.pages.map((p) => p.objects.map((o) => ({
-      id: o.id, t: o.type,
-      x: round(o.x, 3), y: round(o.y, 3), w: round(o.w, 3), h: round(o.h, 3),
-      r: o.rot || 0, k: o.key || "", tx: o.text || "", al: o.align || "left",
-      c: o.color || "#111111", fs: o.fs || 16, lh: o.lh || 1.05,
-      fit: o.fit || "contain", z: o.z || 1,
-      src: o.type === "image" && o.src ? o.src : ""
+    // ใช้ฟังก์ชัน CSS ชุดเดียวกับพรีวิว -> ผลลัพธ์ตรงกัน 100%
+    const pageObjs = state.pages.map((p) => p.objects.map((o2) => ({
+      id: o2.id, t: o2.type, k: o2.key || "", tx: o2.text || "",
+      fit: o2.fit || "contain",
+      box: objBoxCss(o2), oc: objContentCss(o2, 1),
+      src: o2.type === "image" && o2.src ? o2.src : ""
     })));
-    const records = state.records.length ? state.records : [null];
+    const recs = [];
+    const tv = {};
     const qr = {};
-    records.forEach((rec, ri) => {
-      pageObjs.forEach((objs) => objs.forEach((o) => {
-        if (o.t !== "qr") return;
-        const val = (rec && o.k && rec[o.k]) ? String(rec[o.k]) : o.tx;
-        const u = qrDataUrlFor(val);
-        if (u) qr[ri + "|" + o.id] = u;
+    recList.forEach((ri, n) => {
+      const rec = ri < 0 ? null : state.records[ri];
+      recs.push(rec);
+      pageList.forEach((pi) => pageObjs[pi].forEach((o2) => {
+        const val = (rec && o2.k && rec[o2.k] != null && String(rec[o2.k]) !== "") ? String(rec[o2.k]) : "";
+        if (o2.t === "text") tv[n + "|" + o2.id] = o2.k ? val : (o2.tx || "");
+        if (o2.t === "qr") {
+          const q = qrDataUrlFor(val || o2.tx);
+          if (q) qr[n + "|" + o2.id] = q;
+        }
       }));
     });
-    const payload = JSON.stringify({ bgs: bgs, ars: ars, pageObjs: pageObjs, records: records, qr: qr })
-      .replace(/</g, "\\u003c"); // กัน record มี </script> ทำ HTML พัง
+    const payload = JSON.stringify({ bgs: bgs, ars: ars, pageObjs: pageObjs, pageList: pageList, recs: recs, tv: tv, qr: qr })
+      .replace(/</g, "\\u003c"); // กันข้อมูลมี </script> ทำ HTML พัง
+
+    const ar0 = ars[pageList[0]] || (A4.w / A4.h);
+    const pageWmm = Math.round(297 * ar0 * 100) / 100;
+    const embedded = fontsToEmbed();
 
     return `<!DOCTYPE html>
 <html lang="th">
@@ -1052,18 +1867,17 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>เทมเพลตเอกสาร</title>
 <style>
-@page{size:A4;margin:0}
+${fontFaceCss(embedded)}
+@page{size:${pageWmm}mm 297mm;margin:0}
 *{box-sizing:border-box}
-html,body{margin:0;background:#555;font-family:"THSarabunNew","Sarabun","Noto Sans Thai",system-ui,sans-serif}
+html,body{margin:0;background:#555;font-family:${FONT_FALLBACK}}
 .bar{position:sticky;top:0;background:#0071e3;color:#fff;padding:10px 14px;display:flex;gap:12px;align-items:center;font-size:14px;z-index:9}
 .bar button{font:inherit;border:0;border-radius:8px;padding:8px 16px;background:#fff;color:#0071e3;font-weight:700;cursor:pointer}
 #out{padding:14px}
 .page{position:relative;width:794px;height:1123px;margin:0 auto 14px;background:#fff;overflow:hidden;box-shadow:0 4px 18px rgba(0,0,0,.4);page-break-after:always;break-after:page}
 .page:last-child{page-break-after:auto;break-after:auto}
 .page .bg{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;display:block}
-.o{position:absolute;display:flex;align-items:center;overflow:hidden;white-space:pre-wrap;word-break:break-word}
-.o.al-center{justify-content:center;text-align:center}
-.o.al-right{justify-content:flex-end;text-align:right}
+.oc .ph{color:#9aa4ae;font-weight:400}
 .o img{max-width:100%;max-height:100%;display:block}
 .o img.fit-contain{object-fit:contain}.o img.fit-cover{object-fit:cover}.o img.fit-fill{object-fit:fill}
 @media print{body{background:#fff}.bar{display:none}#out{padding:0}.page{margin:0;box-shadow:none}}
@@ -1078,38 +1892,40 @@ function render(){
   var out=document.getElementById("out");
   var frag=document.createDocumentFragment();
   var pages=0;
-  D.records.forEach(function(rec,ri){
-    D.pageObjs.forEach(function(objs,pi){
+  D.recs.forEach(function(rec,ri){
+    D.pageList.forEach(function(pi){
+      var objs=D.pageObjs[pi]||[];
       var page=document.createElement("div");
       page.className="page";
       page.style.height=Math.round(794/(D.ars[pi]||(794/1123)))+"px";
       if(D.bgs[pi]){var bg=document.createElement("img");bg.className="bg";bg.src=D.bgs[pi];page.appendChild(bg);}
       objs.forEach(function(o){
         var el=document.createElement("div");
-        el.className="o al-"+(o.al||"left");
-        el.style.left=o.x+"%";el.style.top=o.y+"%";el.style.width=o.w+"%";el.style.height=o.h+"%";
-        el.style.transform="rotate("+(o.r||0)+"deg)";
-        el.style.color=o.c||"#111";el.style.zIndex=String(o.z||1);
-        if(o.t==="text"){el.style.fontSize=(o.fs||16)+"px";el.style.lineHeight=String(o.lh||1.05);}
-        if(o.t==="image"){
-          if(o.src){var im=document.createElement("img");im.className="fit-"+(o.fit||"contain");im.src=o.src;el.appendChild(im);}
+        el.className="o";
+        el.style.cssText=o.box;
+        var oc=document.createElement("div");
+        oc.className="oc";
+        oc.style.cssText=o.oc;
+        if(o.t==="text"){
+          var v=D.tv[ri+"|"+o.id]||"";
+          var sp=document.createElement("span");
+          if(v){sp.textContent=v;}else{sp.textContent=o.tx||"";sp.className="ph";}
+          oc.appendChild(sp);
+        }else if(o.t==="image"){
+          if(o.src){var im=document.createElement("img");im.className="fit-"+(o.fit||"contain");im.src=o.src;oc.appendChild(im);}
         }else if(o.t==="qr"){
           var q=D.qr[ri+"|"+o.id];
-          if(q){var qi=document.createElement("img");qi.src=q;el.appendChild(qi);}
-        }else{
-          var val="";
-          if(o.k){val=(rec&&rec[o.k]!=null&&String(rec[o.k])!=="")?String(rec[o.k]):"";}
-          else{val=o.tx||"";}
-          if(val){var sp=document.createElement("span");sp.textContent=val;el.appendChild(sp);}
+          if(q){var qi=document.createElement("img");qi.src=q;oc.appendChild(qi);}
         }
+        el.appendChild(oc);
         page.appendChild(el);
       });
       frag.appendChild(page);pages++;
     });
   });
   out.appendChild(frag);
-  var rc=D.records.filter(function(r){return r;}).length;
-  document.getElementById("count").textContent=pages+" หน้า · "+rc+" records";
+  var rc=D.recs.filter(function(r){return r;}).length;
+  document.getElementById("count").textContent=pages+" หน้า · "+rc+" ชุดข้อมูล";
 }
 render();
 </script>
@@ -1150,6 +1966,9 @@ render();
       state.pageIdx = clamp(data.pageIdx || 0, 0, Math.max(0, state.pages.length - 1));
       state.recIdx = clamp(data.recIdx || 0, 0, Math.max(0, state.records.length - 1));
       state.sel = null;
+      applyFontData(data);
+      printIndexes();
+      renderPrint();
       refreshAll();
       renderHistory();
       saveDraftSoon();
@@ -1167,18 +1986,38 @@ render();
     clearTimeout(draftTimer);
     draftTimer = setTimeout(saveDraft, 700);
   }
+  function draftData(lite) {
+    const d = {
+      pages: state.pages, records: state.records,
+      pageIdx: state.pageIdx, recIdx: state.recIdx,
+      defaultFamily: state.defaultFamily,
+      printOrder: printIndexes(),
+      printOff: state.printOff,
+      printNameKey: state.printNameKey,
+      printNameTpl: state.printNameTpl,
+      time: Date.now()
+    };
+    d.fonts = lite ? state.fonts.map((f) => Object.assign({}, f, { dataUrl: "" })) : state.fonts;
+    return d;
+  }
+  function applyFontData(data) {
+    state.fonts = Array.isArray(data && data.fonts)
+      ? data.fonts.filter((f) => f && f.family).map((f) => Object.assign({ embed: true }, f)) : [];
+    state.defaultFamily = (data && data.defaultFamily) || "";
+    if (state.defaultFamily && fontFamilies().indexOf(state.defaultFamily) < 0) state.defaultFamily = "";
+    syncFontFace();
+    renderFonts();
+    refreshFontSelectors();
+  }
   function saveDraft() {
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({
-        pages: state.pages, records: state.records,
-        pageIdx: state.pageIdx, recIdx: state.recIdx, time: Date.now()
-      }));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(draftData(false)));
     } catch (e) {
-      try { // พื้นที่เต็ม — เซฟแบบไม่รวมพื้นหลัง
-        const lite = JSON.parse(JSON.stringify({ pages: state.pages, records: state.records, pageIdx: state.pageIdx, recIdx: state.recIdx, time: Date.now() }));
+      try { // พื้นที่เต็ม — เซฟแบบไม่รวมภาพพื้นหลังและข้อมูลฟอนต์
+        const lite = draftData(true);
         lite.pages.forEach((p) => { if (p.bg) p.bg = { kind: p.bg.kind, src: "", w: p.bg.w, h: p.bg.h, name: p.bg.name }; });
         localStorage.setItem(DRAFT_KEY, JSON.stringify(lite));
-        toast("เซฟ draft (ไม่รวมภาพพื้นหลัง — พื้นที่เต็ม)");
+        toast("เซฟ draft (ไม่รวมภาพพื้นหลังและไฟล์ฟอนต์ — พื้นที่เต็ม)");
       } catch (e2) { /* ปล่อยผ่าน */ }
     }
   }
@@ -1199,6 +2038,13 @@ render();
       state.pageIdx = clamp(data.pageIdx || 0, 0, state.pages.length - 1);
       state.recIdx = clamp(data.recIdx || 0, 0, Math.max(0, state.records.length - 1));
       state.sel = null;
+      if (data.printOrder) state.printOrder = data.printOrder;
+      if (data.printOff) state.printOff = data.printOff;
+      if (typeof data.printNameKey === "string") state.printNameKey = data.printNameKey;
+      if (typeof data.printNameTpl === "string") state.printNameTpl = data.printNameTpl;
+      applyFontData(data);
+      printIndexes();
+      renderPrint();
       refreshAll();
       toast("กู้คืน draft แล้ว", "ok");
       status("กู้คืน draft แล้ว", "ok");
@@ -1275,6 +2121,71 @@ render();
       toast(state.viewAll ? "ดูทุกหน้าพร้อมกัน" : "กลับหน้าเดียว");
     });
 
+    // ฟอนต์ที่ผู้ใช้แนบ
+    $("btnFonts").addEventListener("click", () => $("fontFile").click());
+    $("fontFile").addEventListener("change", (e) => {
+      const files = Array.from(e.target.files || []);
+      e.target.value = "";
+      if (files.length) loadFontFiles(files);
+    });
+    $("fontClear").addEventListener("click", clearFonts);
+    $("fontDefault").addEventListener("change", () => {
+      state.defaultFamily = $("fontDefault").value || "";
+      refreshFontSelectors();
+      renderFonts();
+      refreshAll();
+      saveDraftSoon();
+    });
+
+    // เป้ากากบาท (วางตำแหน่งแบบสัมพัทธ์)
+    $("btnCross").addEventListener("click", () => toggleCross());
+    $("crossAnchor").addEventListener("change", () => { applyCrossToObj(selected()); renderCrosshair(); });
+    $("crossNudgeL").addEventListener("click", () => nudgeCross(-0.1, 0));
+    $("crossNudgeR").addEventListener("click", () => nudgeCross(0.1, 0));
+    $("crossNudgeU").addEventListener("click", () => nudgeCross(0, -0.1));
+    $("crossNudgeD").addEventListener("click", () => nudgeCross(0, 0.1));
+
+    // ปรับหลายฟิลด์พร้อมกัน
+    $("batchSelectAll").addEventListener("click", () => {
+      state.fieldSel = [];
+      state.pages.forEach((p) => p.objects.forEach((o) => state.fieldSel.push(o.id)));
+      renderFields();
+      renderCounters();
+    });
+    $("batchClearSel").addEventListener("click", () => { state.fieldSel = []; renderFields(); renderCounters(); });
+    $("batchApply").addEventListener("click", batchApply);
+
+    // ลำดับการสั่งพิมพ์ + ชื่อไฟล์
+    $("printAllCheck").addEventListener("click", () => { state.printOff = {}; renderPrint(); saveDraftSoon(); });
+    $("printNoneCheck").addEventListener("click", () => {
+      state.printOff = {};
+      printIndexes().forEach((i) => { state.printOff[i] = true; });
+      renderPrint();
+      saveDraftSoon();
+    });
+    $("printReset").addEventListener("click", () => {
+      state.printOrder = null;
+      state.printOff = {};
+      renderPrint();
+      saveDraftSoon();
+      toast("คืนลำดับเดิมแล้ว");
+    });
+    $("printNameKey").addEventListener("change", () => {
+      state.printNameKey = $("printNameKey").value || "";
+      renderPrint();
+      saveDraftSoon();
+    });
+    $("printNameTpl").addEventListener("input", () => {
+      state.printNameTpl = $("printNameTpl").value || "{n}_{key}";
+      updatePrintPreview();
+      saveDraftSoon();
+    });
+    $("printScope").addEventListener("change", () => { state.printScope = $("printScope").value; saveDraftSoon(); });
+    $("printOneFile").addEventListener("click", () => buildPrintFiles(false));
+    $("printSplit").addEventListener("click", () => buildPrintFiles(true));
+    $("printNow").addEventListener("click", printNow);
+    wireSortable($("printList"));
+
     // add object
     document.querySelectorAll("[data-add]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -1326,6 +2237,9 @@ render();
       edImageFit: (o, v) => { o.fit = v; },
       edFontSize: (o, v) => { o.fs = clamp(parseFloat(v) || 16, 6, 120); },
       edLineHeight: (o, v) => { o.lh = clamp(parseFloat(v) || 1.05, 0.6, 4); },
+      edLetter: (o, v) => { o.ls = parseFloat(v) || 0; },
+      edValign: (o, v) => { o.valign = v; },
+      edFamily: (o, v) => { o.family = v; },
       edRotation: (o, v) => { o.rot = clamp(parseFloat(v) || 0, -180, 180); }
     };
     Object.keys(simple).forEach((id) => {
@@ -1337,6 +2251,15 @@ render();
         saveDraftSoon();
       });
     });
+    $("edBold").addEventListener("change", () => {
+      const o = selected();
+      if (o) { o.bold = $("edBold").checked; updateBoldNote(); refreshAll(); saveDraftSoon(); }
+    });
+    $("edItalic").addEventListener("change", () => {
+      const o = selected();
+      if (o) { o.italic = $("edItalic").checked; refreshAll(); saveDraftSoon(); }
+    });
+    $("bFamily").addEventListener("change", updateBoldNote);
     $("edLockAspect").addEventListener("change", () => {
       const o = selected();
       if (o) { o.lockAspect = $("edLockAspect").checked; saveDraftSoon(); }
@@ -1430,6 +2353,12 @@ render();
         o.y = round(clamp(o.y, -o.h + 2, 98), 3);
         applyObjDom(o);
         syncEditorPos();
+        if (state.cross) {
+          state.crossPos = crossAnchorMode() === "c"
+            ? { x: round(o.x + o.w / 2, 3), y: round(o.y + o.h / 2, 3) }
+            : { x: o.x, y: o.y };
+          renderCrosshair();
+        }
         saveDraftSoon();
         e.preventDefault();
       }
@@ -1448,12 +2377,15 @@ render();
     document.querySelectorAll(".pane").forEach((p) => p.classList.toggle("active", p.dataset.pane === name));
     if (name === "fields") renderFields();
     if (name === "fill") renderFill();
+    if (name === "print") renderPrint();
     if (name === "history") renderHistory();
   }
 
   /* ---------------- boot ---------------- */
   function boot() {
     wire();
+    renderFonts();
+    refreshFontSelectors();
     refreshAll();
     renderHistory();
     loadDraftBanner();
