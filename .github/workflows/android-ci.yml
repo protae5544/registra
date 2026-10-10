@@ -24,6 +24,19 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      # แก้ background หายตอน build — ตั้งค่า background ให้ WebView ก่อน build
+      # ปัญหา: WebView มีพื้นเริ่มต้นเป็น transparent ทำให้ background ของหน้าเว็บแสดงไม่เต็มที่
+      # ใน android-ci.yml นี้เราเพิ่มคำสั่ง sed แทรก setBackgroundColor ให้ webView ก่อน build
+      # เพื่อให้ APK ที่ออกมาจาก CI มีพื้นหลังแสดงถูกต้อง
+      - name: Patch WebView background for CI build
+        run: |
+          FILE=app/src/main/java/com/chb/form/OverlayActivity.kt
+          # แทรกบรรทัดตั้ง background ให้ webView หลังบรรทัดที่ตั้งค่า cacheMode
+          if ! grep -q "webView.setBackgroundColor" "$FILE"; then
+            sed -i '/cacheMode = WebSettings.LOAD_DEFAULT/a\
+              webView.setBackgroundColor(Color.parseColor("#FAF7EE")) // พื้นหลัง WebView ให้ตรงกับธีม --bg' "$FILE"
+          fi
+
       # สร้าง debug APK อย่างเดียว (ไม่รัน lint / R8 ของ release ที่ไม่จำเป็นสำหรับการติดตั้งใช้งาน)
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
