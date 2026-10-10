@@ -78,6 +78,16 @@ async function run() {
   check("มี page อย่างน้อย 1 หน้า", document.querySelectorAll(".page").length === 1);
   check("status ขึ้นข้อความพร้อม", $("opStatus").textContent.includes("พร้อม"));
 
+  // 1b) โครงสร้าง HTML: แผงจูนที่ยุบอยู่ต้องไม่ครอบ UI ส่วนอื่นไว้
+  //     (แท็กปิดผิดชนิด เช่น </header> ปิด <div> จะทำให้ jsdom ฝังทั้งหน้าไว้ใน display:none
+  //      โดยเทสยังผ่านอยู่เพราะไม่ได้ตรวจ CSS — จึงต้องตรวจโครงสร้าง DOM ตรง ๆ)
+  const crossPanelEl = $("crossPanel");
+  ["canvasWrap", "editor", "confirmWrap", "loadWrap", "toast", "draftBanner"].forEach((id) => {
+    check("แผงจูนยุบไม่ได้ครอบ " + id + " ไว้ (หน้ามองเห็นได้จริง)",
+      !crossPanelEl.contains($(id)));
+  });
+  check("นับจำนวน <header> ที่เปิด-ปิดตรงกัน", document.querySelectorAll("header").length === 1);
+
   // 2) เพิ่ม text field
   click(document.querySelector('[data-add="text"]'));
   await new Promise((r) => setTimeout(r, 20));

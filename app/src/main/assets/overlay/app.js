@@ -538,6 +538,20 @@
       pg.objects.forEach((o) => layer.appendChild(buildObj(o, idx, rec)));
       pageEl.appendChild(layer);
 
+      // คำใบ้เริ่มต้นบนหน้าว่าง — ชี้ว่าเริ่มสร้างฟอร์มอย่างไร
+      // หายไปเองทันทีที่มีพื้นหลังหรือชิ้นงานแรก (ไม่ต้องกดปิด)
+      if (!pg.bg && !pg.objects.length && !state.viewAll && idx === state.pageIdx) {
+        const hint = document.createElement("div");
+        hint.className = "start-hint";
+        const h1 = document.createElement("b");
+        h1.textContent = "เริ่มสร้างฟอร์มของคุณ";
+        const h2 = document.createElement("span");
+        h2.textContent = "แนบภาพหรือ PDF ในกล่อง ‘พื้นหลังเอกสาร’ ด้านล่าง แล้วกด + ข้อความ / + รูป / + QR / + วันเวลา ด้านบนเพื่อวางชิ้นงานแรก";
+        hint.appendChild(h1);
+        hint.appendChild(h2);
+        pageEl.appendChild(hint);
+      }
+
       wrap.appendChild(pageEl);
     });
 
@@ -1981,11 +1995,17 @@
     const prevSel = state.sel;
     state.sel = null;
     updateSelDom();
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const canvas = await html2canvas(el, { scale: state.exp.pngScale || 2, backgroundColor: "#fff", useCORS: true, logging: false });
-    state.sel = prevSel;
-    updateSelDom();
-    return canvas;
+    // ซ่อนคำใบ้หน้าว่างระหว่างแคป — ไม่ให้ติดไปในไฟล์ export
+    const hints = el.querySelectorAll(".start-hint");
+    hints.forEach((h) => { h.style.display = "none"; });
+    try {
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      return await html2canvas(el, { scale: state.exp.pngScale || 2, backgroundColor: "#fff", useCORS: true, logging: false });
+    } finally {
+      hints.forEach((h) => { h.style.display = ""; });
+      state.sel = prevSel;
+      updateSelDom();
+    }
   }
 
   function addHistory(name, thumb, dataUrl) {

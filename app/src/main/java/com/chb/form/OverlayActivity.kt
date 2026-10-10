@@ -106,7 +106,7 @@ class OverlayActivity : ComponentActivity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#EEF1F4"))
+            setBackgroundColor(Color.parseColor("#F2F6EE")) // ธีมพิสตาชิโอเดียวกับหน้าเว็บ (--bg)
         }
         root.addView(buildBar(), LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
@@ -136,7 +136,7 @@ class OverlayActivity : ComponentActivity() {
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(Color.parseColor("#0071E3"))
+            setBackgroundColor(Color.parseColor("#5B8C4B")) // สีแบรนด์พิสตาชิโอเดียวกับธีมเว็บ
             setPadding(dp(12), dp(8), dp(8), dp(8))
         }
         val title = TextView(this).apply {
@@ -146,6 +146,13 @@ class OverlayActivity : ComponentActivity() {
             typeface = Typeface.DEFAULT_BOLD
         }
         bar.addView(title, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        // แบบฟอร์มเดิม (MainActivity) — ต้องเข้าถึงได้จากหน้าแรกเสมอ ไม่เช่นนั้นฟีเจอร์จะเป็นทางตัน
+        bar.addView(barButton("แบบฟอร์มเดิม") {
+            runCatching { startActivity(Intent(this, MainActivity::class.java)) }
+                .onFailure {
+                    Toast.makeText(this, "เปิดแบบฟอร์มเดิมไม่ได้", Toast.LENGTH_SHORT).show()
+                }
+        })
         bar.addView(barButton("รีเฟรช") { webView.reload() })
         return bar
     }

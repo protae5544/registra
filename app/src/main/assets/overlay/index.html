@@ -32,9 +32,9 @@
     <button id="btnLast"  type="button" disabled title="ชุดสุดท้าย">▶|</button>
   </div>
   <span class="spacer"></span>
-  <button id="btnSnap" type="button" class="snap-on" title="ล็อกชิดขอบ/กึ่งกลางอัตโนมัติ">⊹ Snap</button>
+  <button id="btnSnap" type="button" class="snap-on" title="ล็อกชิดขอบ/กึ่งกลางอัตโนมัติ">⊹ Snap ทำงาน</button>
   <button id="btnViewAll" type="button" class="view-all" title="ดูทุกหน้าพร้อมกัน">☰ ทุกหน้า</button>
-  <button id="btnCross" type="button" class="cross-off" title="เป้ากากบาทสำหรับวางตำแหน่งละเอียดแบบสัมพัทธ์">✛ เป้ากากบาท</button>
+  <button id="btnCross" type="button" class="cross-off" title="เป้ากากบาทสำหรับวางตำแหน่งละเอียดแบบสัมพัทธ์">✛ เป้ากากบาท (ปิด)</button>
   <button id="btnCrossPanel" type="button" aria-expanded="false" aria-controls="crossPanel" title="ค่าความไวและจุดยึดของเป้ากากบาท">⚙ จูน</button>
   <button id="btnFonts" type="button" title="จัดการฟอนต์ที่แนบ">🔤 ฟอนต์</button>
 </header>
@@ -63,7 +63,7 @@
     <button id="crossNudgeD" type="button" class="mini" title="เลื่อนลง 0.1%">▼.1</button>
     <button id="crossNudgeR" type="button" class="mini" title="เลื่อนขวา 0.1%">.1▶</button>
   </div>
-</header>
+</div>
 
 <!-- ══ กู้คืนงานเก่า ══ -->
 <div id="draftBanner" class="bar draft-banner">
@@ -111,7 +111,7 @@
 <div class="app">
   <!-- ══════════ ซ้าย: เอกสาร + ข้อมูล ══════════ -->
   <div>
-    <div class="card">
+    <div class="card card-doc">
       <div class="title">เอกสาร <span class="hint">แตะ = เลือก · ลาก = ย้าย · ลากจุดกลม = ปรับขนาด</span></div>
 
       <div class="row" style="margin-top:8px;justify-content:center">
@@ -142,7 +142,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card card-import">
       <div class="title">นำเข้าข้อมูล <span class="hint">ทุกชุดที่นำเข้าจะถูกรวมเข้างานเดียวกัน</span></div>
 
       <div class="group" style="margin-top:8px">
@@ -172,7 +172,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card card-fonts">
       <div class="title">ฟอนต์ที่แนบ <span class="hint">ฝังลงไฟล์ที่ส่งออกให้อัตโนมัติ</span></div>
       <div style="margin-top:10px">
         <input type="file" id="fontFile" multiple accept=".ttf,.otf,.ttc,.otc,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2">
@@ -189,7 +189,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card card-recpreview">
       <div class="title">ข้อมูลชุดที่กำลังดู</div>
       <pre id="recordPreview">ยังไม่มีข้อมูล</pre>
     </div>
@@ -197,7 +197,7 @@
 
   <!-- ══════════ ขวา: แท็บงาน + ตั้งค่าส่งออก ══════════ -->
   <div>
-    <div class="card">
+    <div class="card card-tabs">
       <div class="tabs">
         <button class="tab active" type="button" data-tab="edit">ชิ้นงาน</button>
         <button class="tab" type="button" data-tab="fill">กรอกข้อมูล</button>
@@ -418,7 +418,7 @@
     </div>
 
     <!-- ══ ตั้งค่าการส่งออก ══ -->
-    <div class="card">
+    <div class="card card-export">
       <div class="title">ตั้งค่าการส่งออก</div>
       <div class="expbox" style="margin-top:10px">
         <div class="expopt">
@@ -441,7 +441,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card card-status">
       <div class="title">สถานะ</div>
       <div id="opStatus" class="status" aria-live="polite"></div>
     </div>
