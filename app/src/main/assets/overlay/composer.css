@@ -238,7 +238,7 @@ body[data-view="stage"] #home{opacity:0;transform:scale(1.06);pointer-events:non
 .page.active{border-color:var(--soft-line);box-shadow:var(--sh-2),0 0 0 2px rgba(106,106,106,.25)}
 .page.has-sel{border-color:var(--primary)}
 
-.bg{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;display:block}
+.bg{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;display:block;z-index:10}
 .bg.contain{object-fit:contain;background:#fff}
 .guideLayer{position:absolute;inset:0;pointer-events:none;z-index:30}
 .guide{position:absolute;background:rgba(106,106,106,.75)}
