@@ -1,20 +1,28 @@
 "use strict";
 /* ============================================================
    Overlay Composer — สร้างเทมเพลตเอกสารจากภาพ/PDF ต้นฉบับ
+
    ฟีเจอร์หลัก:
    - หลายหน้า (โหลด PDF ได้ทุกหน้า, หลายภาพ = หลายหน้า, เพิ่ม/ลบหน้าเองได้)
    - เพิ่ม/ลบฟิลด์ (text/image/qr) ได้อิสระ
    - ลากย้าย + ลากปรับขนาด + กรอกตำแหน่งตัวเลข (หน่วย % ของหน้า)
    - พื้นหลังเป็นภาพตัวอย่าง (jpg/png/webp/svg) หรือ PDF
    - กรอกข้อมูลหลาย record, Export/Import layout, PNG/PDF
+
+   โครงสร้างภายใน (เรียงตามชั้นที่ปรับปรุง):
+   1. Persistence   → IndexedDB เป็นหลัก, localStorage สำรอง + migrate
+   2. Fonts/Assets  → ฟอนต์พื้นฐานโหลดจาก assets อัตโนมัติ
+   3. Page accuracy → ปรับขนาดหน้าและ print CSS ให้เสถียร
+   4. Render quality→ ปรับปรุง html2canvas + การส่งออก PDF/PNG
+   5. Organization  → จัดกลุ่มและเอกสารภายในให้ชัดเจน
    ============================================================ */
 (function () {
   const $ = (id) => document.getElementById(id);
   const uid = () => "o" + Math.random().toString(36).slice(2, 10);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const round = (v, d) => { const m = 10 ** (d == null ? 2 : d); return Math.round((v + Number.EPSILON) * m) / m; };
-  const A4 = { w: 794, h: 1123 };
-  const DRAFT_KEY = "oc_draft_v2";
+  const A4 = { w: 794, h: 1123 };          // ขนาดฐานพรีวิว (px ที่ ~96dpi)
+  const DRAFT_KEY = "oc_draft_v2";        // key สำหรับ draft (ใช้ทั้ง IndexedDB และ localStorage)
 
   /* ---------------- state ---------------- */
   const state = {
@@ -330,12 +338,21 @@
   }
 
   /* โหลดฟอนต์พื้นฐานจาก assets ของ APK
-     เส้นทางเดียว: เรียกครั้งเดียวตอน boot ถ้า state.fonts ยังว่าง
+     - ถ้ายังไม่มีฟอนต์เลย → โหลดทั้งหมด
+     - ถ้ามีฟอนต์อยู่แล้ว แต่ขาดตัวพื้นฐาน (เช่น หลังกู้ draft แบบ lite) → เติมเฉพาะตัวที่ขาด
      ใช้ fetch อ่านไฟล์แล้วแปลงเป็น dataUrl เพื่อให้ฝังใน export ได้ตามปกติ */
   async function loadBuiltinFonts() {
-    if (state.fonts.length > 0) return; // มีฟอนต์อยู่แล้ว (จาก draft หรือผู้ใช้แนบ) ไม่ต้องโหลดซ้ำ
+    const existing = {};
+    state.fonts.forEach((f) => {
+      const k = (f.family || "") + "|" + (f.weight || 400);
+      existing[k] = true;
+    });
+
     let loaded = 0;
     for (const item of BUILTIN_FONTS) {
+      const key = item.family + "|" + item.weight;
+      if (existing[key]) continue; // มีอยู่แล้ว ข้าม
+
       try {
         const res = await fetch(item.path);
         if (!res.ok) throw new Error("HTTP " + res.status);
@@ -364,12 +381,13 @@
         console.warn("โหลดฟอนต์พื้นฐานไม่สำเร็จ:", item.path, err.message);
       }
     }
-    if (loaded > 0) {
+
+    if (loaded > 0 || !state.defaultFamily) {
       if (!state.defaultFamily) state.defaultFamily = BUILTIN_DEFAULT_FAMILY;
       syncFontFace();
       renderFonts();
       refreshFontSelectors();
-      status("โหลดฟอนต์พื้นฐาน " + loaded + " ตัวแล้ว", "ok");
+      if (loaded > 0) status("โหลดฟอนต์พื้นฐาน " + loaded + " ตัวแล้ว", "ok");
     }
   }
 
@@ -2127,14 +2145,35 @@
     const prevSel = state.sel;
     state.sel = null;
     updateSelDom();
-    // ซ่อนคำใบ้หน้าว่างระหว่างแคป — ไม่ให้ติดไปในไฟล์ export
-    const hints = el.querySelectorAll(".start-hint");
-    hints.forEach((h) => { h.style.display = "none"; });
+
+    // ซ่อนองค์ประกอบที่ไม่ควรติดไปในไฟล์ export
+    const toHide = el.querySelectorAll(".start-hint, .page-label, .obj-label, .h, .guideLayer, .crossLayer");
+    const prevDisplay = [];
+    toHide.forEach((node, i) => {
+      prevDisplay[i] = node.style.display;
+      node.style.display = "none";
+    });
+
     try {
+      // รอให้ฟอนต์และ layout settle
+      await ensureFonts();
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-      return await html2canvas(el, { scale: multiplierFor(scaleOverride) || multiplierFor(state.exp.pngScale), backgroundColor: "#fff", useCORS: true, logging: false });
+
+      const scale = multiplierFor(scaleOverride) || multiplierFor(state.exp.pngScale);
+      return await html2canvas(el, {
+        scale: scale,
+        backgroundColor: "#ffffff",
+        useCORS: true,
+        allowTaint: false,
+        logging: false,
+        letterRendering: true,
+        imageTimeout: 15000,
+        removeContainer: true
+      });
     } finally {
-      hints.forEach((h) => { h.style.display = ""; });
+      toHide.forEach((node, i) => {
+        node.style.display = prevDisplay[i] || "";
+      });
       state.sel = prevSel;
       updateSelDom();
     }
@@ -2184,13 +2223,24 @@
       for (let k = 0; k < targets.length; k++) {
         loadProg((k / targets.length) * 100, "เรนเดอร์หน้า " + (k + 1) + "/" + targets.length);
         const canvas = await capturePage(targets[k], ps);
+        // ใช้ PNG เพื่อรักษาความคมของตัวอักษร (โดยเฉพาะภาษาไทย)
         const img = canvas.toDataURL("image/png");
         const pg = state.pages[targets[k]];
         const ar = pg.bg ? pg.bg.w / pg.bg.h : A4.w / A4.h;
-        const hPt = 842, wPt = Math.round(842 * ar * 100) / 100;
-        if (!doc) doc = new jsPDF({ unit: "pt", format: [wPt, hPt], orientation: wPt > hPt ? "l" : "p", compress: true });
-        else doc.addPage([wPt, hPt], wPt > hPt ? "l" : "p");
-        doc.addImage(img, "PNG", 0, 0, wPt, hPt);
+        const hPt = 842;
+        const wPt = Math.round(842 * ar * 100) / 100;
+        if (!doc) {
+          doc = new jsPDF({
+            unit: "pt",
+            format: [wPt, hPt],
+            orientation: wPt > hPt ? "l" : "p",
+            compress: true,
+            precision: 16
+          });
+        } else {
+          doc.addPage([wPt, hPt], wPt > hPt ? "l" : "p");
+        }
+        doc.addImage(img, "PNG", 0, 0, wPt, hPt, undefined, "FAST");
         if (k === targets.length - 1) loadProg(100);
       }
       if (all && !wasAll) { state.viewAll = false; renderPages(); }
@@ -2319,10 +2369,18 @@ html,body{margin:0;background:#555;font-family:${FONT_FALLBACK}}
 .o img{max-width:100%;max-height:100%;display:block}
 .o img.fit-contain{object-fit:contain}.o img.fit-cover{object-fit:cover}.o img.fit-fill{object-fit:fill}
 @media print{
-  body{background:#fff;margin:0;padding:0}
+  html,body{background:#fff;margin:0!important;padding:0!important;height:auto!important}
   .topbar,.bar,.selbar{display:none!important}
-  #out{padding:0;margin:0}
-  .page{margin:0!important;box-shadow:none!important;page-break-after:always;break-after:page}
+  #out{padding:0!important;margin:0!important}
+  .page{
+    width:100%!important;
+    max-width:100%!important;
+    margin:0!important;
+    box-shadow:none!important;
+    page-break-after:always;
+    break-after:page;
+    break-inside:avoid;
+  }
   .page:last-child{page-break-after:auto;break-after:auto}
 }
 </style>
@@ -2394,7 +2452,10 @@ function render(list){
       var rec=D.recs[ri];
       var page=document.createElement("div");
       page.className="page";
-      page.style.height=Math.round(794/(D.ars[pi]||(794/1123)))+"px";
+      // คำนวณความสูงจากอัตราส่วนจริงของหน้า (ฐานความกว้าง 794px)
+      // ใช้ Math.round เพื่อลดปัญหา sub-pixel ที่อาจทำให้เกิดหน้าเกินตอนพิมพ์
+      var ar = D.ars[pi] || (794/1123);
+      page.style.height = Math.round(794 / ar) + "px";
       if(D.bgs[pi]){var bg=document.createElement("img");bg.className="bg";bg.src=D.bgs[pi];page.appendChild(bg);}
       objs.forEach(function(o){
         var el=document.createElement("div");
@@ -2561,12 +2622,67 @@ render(allIdx());
     }
   }
 
-  /* ---------------- draft (auto-save) ---------------- */
+  /* ---------------- draft (auto-save) — ชั้นที่ 1: Persistence ----------------
+     ใช้ IndexedDB เป็นหลัก, localStorage เป็นทางสำรองและสำหรับ migrate
+     API ภายนอกยังเหมือนเดิม เพื่อไม่กระทบฟังก์ชันที่มีอยู่
+  ------------------------------------------------ */
+  const IDB_NAME = "oc_draft_db";
+  const IDB_STORE = "drafts";
+  const IDB_VERSION = 1;
+  let idb = null; // cached connection
+
+  function openIDB() {
+    return new Promise((resolve, reject) => {
+      if (idb) return resolve(idb);
+      if (!window.indexedDB) return reject(new Error("IndexedDB ไม่รองรับ"));
+      const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(IDB_STORE)) {
+          db.createObjectStore(IDB_STORE, { keyPath: "key" });
+        }
+      };
+      req.onsuccess = (e) => {
+        idb = e.target.result;
+        resolve(idb);
+      };
+      req.onerror = () => reject(req.error || new Error("เปิด IndexedDB ไม่สำเร็จ"));
+    });
+  }
+
+  function idbPut(key, data) {
+    return openIDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.objectStore(IDB_STORE).put({ key: key, data: data, updated: Date.now() });
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+
+  function idbGet(key) {
+    return openIDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readonly");
+      const req = tx.objectStore(IDB_STORE).get(key);
+      req.onsuccess = () => resolve(req.result ? req.result.data : null);
+      req.onerror = () => reject(req.error);
+    }));
+  }
+
+  function idbDelete(key) {
+    return openIDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.objectStore(IDB_STORE).delete(key);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+
   let draftTimer = null;
   function saveDraftSoon() {
     clearTimeout(draftTimer);
     draftTimer = setTimeout(saveDraft, 700);
   }
+
   function draftData(lite) {
     const d = {
       pages: state.pages, records: state.records,
@@ -2584,41 +2700,94 @@ render(allIdx());
     d.fonts = lite ? state.fonts.map((f) => Object.assign({}, f, { dataUrl: "" })) : state.fonts;
     return d;
   }
+
   function applyFontData(data) {
     state.fonts = Array.isArray(data && data.fonts)
       ? data.fonts.filter((f) => f && f.family).map((f) => Object.assign({ embed: true }, f)) : [];
     state.defaultFamily = (data && data.defaultFamily) || "";
     if (state.defaultFamily && fontFamilies().indexOf(state.defaultFamily) < 0) state.defaultFamily = "";
+    // หลังกู้ draft อาจมีฟอนต์ไม่ครบ (โดยเฉพาะแบบ lite) → เติมฟอนต์พื้นฐานที่ขาด
+    // เรียกแบบ fire-and-forget เพราะ applyFontData ถูกเรียกแบบ sync
+    loadBuiltinFonts().then(() => {
+      syncFontFace();
+      renderFonts();
+      refreshFontSelectors();
+    }).catch(() => {});
     syncFontFace();
     renderFonts();
     refreshFontSelectors();
   }
-  function saveDraft() {
+
+  async function saveDraft() {
+    const full = draftData(false);
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify(draftData(false)));
-    } catch (e) {
-      try { // พื้นที่เต็ม — เซฟแบบไม่รวมภาพพื้นหลังและข้อมูลฟอนต์
+      // บันทึกหลักด้วย IndexedDB (รองรับข้อมูลใหญ่กว่า localStorage มาก)
+      await idbPut(DRAFT_KEY, full);
+      // สำรองลง localStorage แบบย่อไว้ด้วย (กรณี browser ล้าง IndexedDB)
+      try {
         const lite = draftData(true);
-        lite.pages.forEach((p) => { if (p.bg) p.bg = { kind: p.bg.kind, src: "", w: p.bg.w, h: p.bg.h, name: p.bg.name }; });
+        lite.pages.forEach((p) => {
+          if (p.bg) p.bg = { kind: p.bg.kind, src: "", w: p.bg.w, h: p.bg.h, name: p.bg.name };
+        });
         localStorage.setItem(DRAFT_KEY, JSON.stringify(lite));
-        toast("เซฟ draft (ไม่รวมภาพพื้นหลังและไฟล์ฟอนต์ — พื้นที่เต็ม)");
-      } catch (e2) {
-        toast("เซฟงานไม่สำเร็จแม้แบบย่อ — พื้นที่เครื่องเต็ม กรุณากด “บันทึกผังงาน” เก็บไว้เป็นไฟล์", "err");
+      } catch (e) { /* localStorage เต็ม — ไม่เป็นไร มี IndexedDB อยู่แล้ว */ }
+    } catch (err) {
+      // IndexedDB ล้มเหลว → ถอยกลับไปใช้ localStorage แบบเดิม
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(full));
+      } catch (e) {
+        try {
+          const lite = draftData(true);
+          lite.pages.forEach((p) => {
+            if (p.bg) p.bg = { kind: p.bg.kind, src: "", w: p.bg.w, h: p.bg.h, name: p.bg.name };
+          });
+          localStorage.setItem(DRAFT_KEY, JSON.stringify(lite));
+          toast("เซฟ draft (ไม่รวมภาพพื้นหลังและไฟล์ฟอนต์ — พื้นที่เต็ม)");
+        } catch (e2) {
+          toast("เซฟงานไม่สำเร็จแม้แบบย่อ — พื้นที่เครื่องเต็ม กรุณากด “บันทึกผังงาน” เก็บไว้เป็นไฟล์", "err");
+        }
       }
     }
   }
-  function loadDraftBanner() {
+
+  async function loadDraftBanner() {
     try {
-      const raw = localStorage.getItem(DRAFT_KEY);
-      if (!raw) return;
-      JSON.parse(raw);
-      $("draftBanner").classList.add("show");
-    } catch (e) {}
+      // ตรวจจาก IndexedDB ก่อน
+      let data = await idbGet(DRAFT_KEY);
+      if (!data) {
+        // ยังไม่มีใน IDB → ลอง migrate จาก localStorage
+        const raw = localStorage.getItem(DRAFT_KEY);
+        if (raw) {
+          data = JSON.parse(raw);
+          if (data && Array.isArray(data.pages)) {
+            await idbPut(DRAFT_KEY, data); // migrate ขึ้น IDB
+          }
+        }
+      }
+      if (data && Array.isArray(data.pages)) {
+        $("draftBanner").classList.add("show");
+      }
+    } catch (e) {
+      // fallback แบบเดิม
+      try {
+        const raw = localStorage.getItem(DRAFT_KEY);
+        if (raw) {
+          JSON.parse(raw);
+          $("draftBanner").classList.add("show");
+        }
+      } catch (e2) {}
+    }
   }
-  function restoreDraft() {
+
+  async function restoreDraft() {
     try {
-      const data = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
+      let data = await idbGet(DRAFT_KEY);
+      if (!data) {
+        const raw = localStorage.getItem(DRAFT_KEY);
+        data = raw ? JSON.parse(raw) : null;
+      }
       if (!data || !Array.isArray(data.pages)) throw new Error("ไม่พบ draft");
+
       state.pages = data.pages;
       state.records = Array.isArray(data.records) ? data.records : [];
       state.pageIdx = clamp(data.pageIdx || 0, 0, state.pages.length - 1);
@@ -2650,8 +2819,10 @@ render(allIdx());
     }
     $("draftBanner").classList.remove("show");
   }
-  function dismissDraft() {
+
+  async function dismissDraft() {
     $("draftBanner").classList.remove("show");
+    try { await idbDelete(DRAFT_KEY); } catch (e) {}
     try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
     toast("ทิ้งงานเก่าแล้ว", "warn");
   }
