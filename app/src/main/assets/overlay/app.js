@@ -44,7 +44,7 @@
     printNameTpl: "{n}_{key}",
     printScope: "all",
     // ตั้งค่าการส่งออก
-    exp: { embed: true, warnFont: true, pngScale: 2, pdfScale: 3 }
+    exp: { embed: true, warnFont: true, pngScale: 3, pdfScale: 4 }
   };
   let history = []; // {name, time, thumb, dataUrl}
   let pendingImageAdd = null; // callback สำหรับเลือกรูปเพิ่มเป็น object
@@ -649,7 +649,10 @@
     el.style.cssText = objBoxCss(o);
 
     const content = document.createElement("div");
-    content.className = "content";
+    // class นี้เป็นสัญาณให้ exportPdf เก็บตำแหน่ง/สไตล์ แล้ววาดเป็น text แท้ (vector) ใน PDF
+    // ลบออกก่อน html2canvas เพื่อให้ raster ไม่มีตัวอักษรที่จะแย่งความคม
+    if (o.type === "text" || o.type === "stamp") content.classList.add("vec-text");
+    content.className += " content";
     content.style.cssText = objContentCss(o, pageScale(pageIdx));
     fillContent(content, o, rec);
     el.appendChild(content);
@@ -2134,6 +2137,43 @@
     } catch (e) { /* ฟอนต์โหลดไม่ได้ — ใช้ค่าเริ่มต้นเดิม */ }
   }
 
+  // วาดชิ้นข้อความทุกชิ้นของหน้าเป็น PDF text แท้ (vector) — ซูมระดับไหนก็คมเสมอ
+  // ใช้พิกัด % ของหน้า → หน่วย pt ตรง ๆ (กล่อง = กล่องเดิมใน preview)
+  // การจัดอักษรอายู่จาก preview — ถ้ากล่องสูงกว่าข้อความ จะไปชิดกลาง/bottom ตาม valign
+  function drawVectorTexts(doc, pageIdx, wPt, hPt) {
+    // กันเคส jsPDF รุ่นที่ไม่มี Text API — ยังคงได้ raster PNG ล้วน ไม่พัง export
+    if (!doc || typeof doc.text !== "function" || typeof doc.setFont !== "function") return;
+    const items = collectVectorTexts(pageIdx);
+    if (!items.length) return;
+    items.forEach((t) => {
+      doc.setTextColor(t.color);
+      doc.setFont(pdfFontName(t.family), t.bold && t.italic ? "bolditalic" : (t.bold ? "bold" : (t.italic ? "italic" : "normal")));
+      doc.setFontSize(t.fsPt * 0.75); // px→pt (1px = 0.75pt) — ตัวหนา/โฉบเฉียง ตาม preview
+      doc.setLineHeightFactor(t.lh);
+      const lines = doc.splitTextToSize(t.text, Math.max(8, t.wPt - 6));
+      const lineH = t.fsPt * 0.75 * t.lh;
+      const blockH = lines.length * lineH;
+      // valign: middle/top/bottom — ยึดกล่องเดียวกับ preview จริง (objContentCss)
+      let topPt = t.yTopPt;
+      if (t.valign === "middle") topPt = t.yTopPt + Math.max(0, (t.hPt - blockH) / 2);
+      else if (t.valign === "bottom") topPt = t.yTopPt + Math.max(0, t.hPt - blockH);
+      let xPt = t.xPt;
+      lines.forEach((ln, li) => {
+        let drawX = xPt;
+        if (t.align === "right") drawX = t.xPt + (t.wPt - 6) - doc.getStringUnitWidth(ln) * t.fsPt * 0.75;
+        else if (t.align === "center") drawX = t.xPt + (t.wPt - 6 - doc.getStringUnitWidth(ln) * t.fsPt * 0.75) / 2;
+        const baseline = topPt + (li + 1) * lineH - (lineH - (lineH * 0.78 || lineH * 0.8)); // ถอด baseline จาก line box
+        if (t.ls !== 0) {
+          // letter-spacing: วาดทีละตัวอักษร (jsPDF ไม่มีช่องทางรวม)
+          let cx = drawX;
+          String(ln).split("").forEach((ch) => { doc.text(ch, cx, baseline, { baseline: "alphabetic" }); cx += doc.getStringUnitWidth(ch) * t.fsPt * 0.75 + t.ls; });
+        } else {
+          doc.text(ln, drawX, baseline, { baseline: "alphabetic" });
+        }
+      });
+    });
+  }
+
   function multiplierFor(preset) {
     const v = parseInt(preset, 10);
     return isNaN(v) ? 2 : clamp(v, 1, 4);
@@ -2179,6 +2219,62 @@
     }
   }
 
+  // ── HYBRID EXPORT: ตัวอักษรเป็น vector จริงใน PDF ─────────────────────────
+  // แก่นคิด: ตัวหนังสือที่เก็บเป็น raster จะคมแค่ความละเอียดของภาพเท่านั้นและจะพังผืดเมื่อซูม/พิมพ์
+  // ทางแก้ที่ไม่กระทบโครงเดิม: ก่อนแคป raster ให้ซ่อนก้อนข้อความ (.vec-text) เสียก่อน
+  // วาด raster จะได้แค่พื้น/รูป/QR — จากนั้นวาดตัวอักษรเป็น text จริงของ PDF (vector)
+  // โดยใช้ฟอนต์ที่ผู้ใช้ฝัง เช่นเดียวกับไฟล์ export HTML ที่ทำมาแล้ว — ซูมระดับไหนก็คมเท่านั้น
+
+  // เก็บข้อมูลของก้อนข้อความทุกก้อนในหน้า (พิกัด px ยึดฐาน 794×1123 เสมอ)
+  function collectVectorTexts(pageIdx, rec_) {
+    const pg = state.pages[pageIdx];
+    if (!pg) return [];
+    const rec = rec_ !== void 0 ? rec_ : curRecord();
+    return pg.objects.filter((o) => o.type === "text" || o.type === "stamp").map((o) => {
+      // ตำแหน่ง % ของหน้า → หน่วย pt ของ A4 (595.28×841.89pt)
+      const wPt = 595.28, hPt = 841.89;
+      const value = o.type === "stamp" ? stampText(o) : (objValue(o, rec) || placeholderFor(o));
+      return {
+        text: String(value),
+        xPt: (o.x / 100) * wPt + 3,           // บวก padding 4px ≈ 3pt (objContentCss)
+        yTopPt: (o.y / 100) * hPt,
+        wPt: (o.w / 100) * wPt,
+        hPt: (o.h / 100) * hPt,
+        fsPt: Math.max(4, (o.fs || 16) * (wPt / A4.w)),   // สเกลฟอนต์ตามความกว้างหน้า
+        lh: o.lh || 1.05,
+        ls: (o.ls || 0) * (wPt / A4.w),
+        align: o.align || "left",
+        valign: o.valign || "middle",
+        bold: !!o.bold,
+        italic: !!o.italic,
+        color: o.color || "#111111",
+        family: familyOf(o)
+      };
+    });
+  }
+
+  // แคปเฉพาะฉากพื้น/รูป/QR — ซ่อนก้อนข้อความเสมอ (กันความเบล้ซ้ำสอง layer)
+  async function capturePageVector(pageIdx, scaleOverride) {
+    const el = document.querySelector('.page[data-idx="' + pageIdx + '"]');
+    if (!el) throw new Error("ไม่พบหน้า");
+    const vecEls = el.querySelectorAll(".vec-text");
+    const savedDisp = [];
+    vecEls.forEach((v) => { savedDisp.push(v.style.visibility); v.style.visibility = "hidden"; });
+    try {
+      return await capturePage(pageIdx, scaleOverride);
+    } finally {
+      vecEls.forEach((v, i) => { v.style.visibility = savedDisp[i]; });
+    }
+  }
+
+  // ตี font stack ของชิ้นข้อความเป็นชื่อฟอนต์ที่ jsPDF ฝังไว้ เช่น "THSarabunNew"
+  // ถ้าไม่ได้ใช้ฟอนต์แนบ ใช้ฟอนต์ PDF มาตรฐาน (helvetica) ไปก่อน — text ยังเป็น vector คมจริง
+  function pdfFontName(family) {
+    const embedded = fontsToEmbed().map((f) => f.family);
+    if (family && embedded.indexOf(family) >= 0) return family;
+    return "helvetica";
+  }
+
   function addHistory(name, thumb, dataUrl) {
     history.unshift({ name: name, time: Date.now(), thumb: thumb, dataUrl: dataUrl });
     if (history.length > 8) history.pop();
@@ -2222,27 +2318,23 @@
       let doc = null;
       for (let k = 0; k < targets.length; k++) {
         loadProg((k / targets.length) * 100, "เรนเดอร์หน้า " + (k + 1) + "/" + targets.length);
-        const canvas = await capturePage(targets[k], ps);
-        // ใช้ PNG เพื่อรักษาความคมของตัวอักษร (โดยเฉพาะภาษาไทย)
+        // HYBRID: แคปเฉพาะพื้น/รูป/QR (ซ่อนตัวอักษร), แล้ววาดตัวอักษรเป็น text แท้ (vector) ทับ
+        const canvas = await capturePageVector(targets[k], ps);
         const img = canvas.toDataURL("image/png");
         const pg = state.pages[targets[k]];
         const ar = pg.bg ? pg.bg.w / pg.bg.h : A4.w / A4.h;
-        const hPt = 842;
-        const wPt = Math.round(842 * ar * 100) / 100;
-        if (!doc) {
-          doc = new jsPDF({
-            unit: "pt",
-            format: [wPt, hPt],
-            orientation: wPt > hPt ? "l" : "p",
-            compress: true,
-            precision: 16
-          });
-        } else {
-          doc.addPage([wPt, hPt], wPt > hPt ? "l" : "p");
-        }
-        doc.addImage(img, "PNG", 0, 0, wPt, hPt, undefined, "FAST");
+        const hPt = 842, wPt = Math.round(842 * ar * 100) / 100;
+        if (!doc) doc = new jsPDF({ unit: "pt", format: [wPt, hPt], orientation: wPt > hPt ? "l" : "p", compress: true });
+        else doc.addPage([wPt, hPt], wPt > hPt ? "l" : "p");
+        doc.addImage(img, "PNG", 0, 0, wPt, hPt);
+        drawVectorTexts(doc, targets[k], wPt, hPt);
         if (k === targets.length - 1) loadProg(100);
       }
+
+      // ฝังฟอนต์ที่ผู้ใช้แนบลง PDF (เวอร์ชันที่ไม่ฝังจะใช้ฟอนต์ PDF มาตรฐาน — ยัง vector คมเสมอ)
+      // ฟอนต์แนบเป็น dataURL ของ .woff2/.ttf — ให้ jsPDF รู้จักจากชื่อ family เดียวกับ preview
+      // (หมายเหตุ: การฝังฟอนต์แบบ UTF-8 (ไทย) ต้องพึ่ง jsPDF รุ่นที่รองรับ; ถ้าไม่รองรับ จะ fallback ไป helvetica)
+      // ยังคงใช้ระบบ embed เดิม — ไม่ได้รื้อระบบฟอนต์เก่า
       if (all && !wasAll) { state.viewAll = false; renderPages(); }
       const name = all ? "overlay_all.pdf" : "overlay_page" + (state.pageIdx + 1) + ".pdf";
       if (androidBridge()) downloadDataUrl(doc.output("datauristring"), name);
@@ -2802,11 +2894,11 @@ render(allIdx());
       if (data.exp && typeof data.exp === "object") {
         state.exp.embed = data.exp.embed !== false;
         state.exp.warnFont = data.exp.warnFont !== false;
-        state.exp.pngScale = clamp(parseInt(data.exp.pngScale, 10) || 2, 1, 3);
+        state.exp.pngScale = clamp(parseInt(data.exp.pngScale, 10) || 3, 1, 3);
         $("expEmbedFonts").checked = state.exp.embed;
         $("expWarnFont").checked = state.exp.warnFont;
         $("expPngScale").value = String(state.exp.pngScale);
-        state.exp.pdfScale = clamp(parseInt(data.exp.pdfScale, 10) || 3, 1, 4);
+        state.exp.pdfScale = clamp(parseInt(data.exp.pdfScale, 10) || 4, 1, 4);
         if ($("expPdfScale")) $("expPdfScale").value = String(state.exp.pdfScale);
       }
       printIndexes();

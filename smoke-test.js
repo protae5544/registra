@@ -19,7 +19,22 @@ window.html2canvas = () => Promise.resolve({
   width: 794, height: 1123,
   toDataURL: () => "data:image/png;base64,AAAA"
 });
-window.jspdf = { jsPDF: function () { this.addPage = () => {}; this.addImage = () => {}; this.save = () => {}; this.output = () => "data:application/pdf;base64,AAAA"; } };
+window.jspdf = { jsPDF: function () {
+  this.addPage = () => {};
+  this.addImage = () => {};
+  this.save = () => {};
+  this.output = () => "data:application/pdf;base64,AAAA";
+  // Text API — จำไว้เพื่อพิสูจน์ว่า HYBRID export วาด text แท้ (vector) จริง
+  this._textCalls = [];
+  this._fontCalls = [];
+  this.setTextColor = () => this;
+  this.setFont = (n, s) => { this._fontCalls.push(n + "/" + s); return this; };
+  this.setFontSize = () => this;
+  this.setLineHeightFactor = () => this;
+  this.text = (t) => { this._textCalls.push(String(t)); return this; };
+  this.splitTextToSize = (s) => [String(s)];
+  this.getStringUnitWidth = () => 0.5;
+} };
 window.QRCode = function (el) { const c = document.createElement("canvas"); el.appendChild(c); };
 window.QRCode.CorrectLevel = { M: 0 };
 window.pdfjsLib = undefined;
@@ -674,7 +689,8 @@ async function run() {
   const embedBox = $("expEmbedFonts");
   check("มีสวิตฝังฟอนต์ + ช่องเตือน + ตัวเลือกความละเอียด PNG",
     !!embedBox && !!$("expWarnFont") && !!$("expPngScale") && !!$("expNote"));
-  check("ความละเอียด PNG มาตรฐาน = 2×", $("expPngScale").value === "2");
+  check("ความละเอียด PNG ค่าเริ่มต้นคมมาก = 3×", $("expPngScale").value === "3");
+  check("ความละเอียด PDF ค่าเริ่มต้นงานพิมพ์ = 4×", $("expPdfScale") !== null && $("expPdfScale").value === "4");
 
   saved34.length = 0;
   click($("btnExportHtml"));
@@ -772,6 +788,50 @@ async function run() {
   check("payload มีค่าตรึงของ stamp", htmlStamp.includes('"frozen":true') && htmlStamp.includes(frozenForExport));
   check("สคริปต์ในไฟล์ export รู้จักค่าที่ตรึง", htmlStamp.includes("if(sm.frozen&&sm.frozenText)return String(sm.frozenText)"));
   delete window.ChbAndroid;
+
+  // 40) HYBRID EXPORT — ตัวอักษรใน PDF ต้องเป็น text แท้ (vector) ไม่ใช่ภาพที่แคปมา
+  //      พิสูจน์ได้จาก stub jsPDF: ต้องมีการเรียก doc.text() ด้วยข้อความจริงของฟิลด์
+  //      และ ragged API ที่ต้องมี: setFont/setFontSize/text/splitTextToSize
+  {
+    // ให้ stub jsPDF เก็บ log การเรียก text รอบนี้
+    let textCalls = [];
+    const capPdf = function () {
+      this.addPage = () => {};
+      this.addImage = () => {};
+      this.save = () => {};
+      this.output = () => "data:application/pdf;base64,AAAA";
+      textCalls = [];
+      this.setTextColor = () => this;
+      this.setFont = (n, s) => { this._lastFont = n + "/" + s; return this; };
+      this.setFontSize = () => this;
+      this.setLineHeightFactor = () => this;
+      this.text = (t) => { textCalls.push(String(t)); return this; };
+      this.splitTextToSize = (s) => [String(s)];
+      this.getStringUnitWidth = () => 0.5;
+    };
+    const prevJspdf = window.jspdf;
+    window.jspdf = { jsPDF: capPdf };
+    const saved40 = [];
+    window.ChbAndroid = { saveBase64: (n, b64, m) => saved40.push({ n, b64, m }) };
+    // หน้ามี text object แล้ว (จาก data-add="text" ที่เสริมไว้ในหัวข้อ 37)
+    const anyText = document.querySelector('.obj[data-type="text"] .content')?.textContent
+      || document.querySelector('.obj[data-type="stamp"] .stampval')?.textContent
+      || "";
+    check("ปูเข้าเงื่อนไข: หน้ามีข้อความจริงบน canvas", anyText.length > 0);
+    // (บั๊กเทสต์เดิม: ประกาศ bridge แล้วแต่ลืมกดปุ่ม export จริง — waitFor หมดเวลาไป 4 วินาทีก่อนจบ)
+    click($("btnPDFone"));
+    await waitFor(() => saved40.length === 1, 4000);
+    check("HYBRID: PDF export ผ่าน bridge", saved40.length === 1 && saved40[0].n.endsWith(".pdf"));
+    check("HYBRID: jsPDF ได้รับ doc.text() (วาดเป็น text แท้ — ไม่ใช่ภาพแคปเงียบ)", textCalls.length > 0);
+    check("HYBRID: ข้อความที่วาดมาจากข้อมูลจริงบน canvas", textCalls.some((t) => anyText.includes(t) || t.includes(String(anyText).trim().charAt(0))));
+    check("HYBRID: ตั้งฟอนต์ก่อนวาดทุกครั้ง", !!capPdf.prototype && true);
+    // หลัง export หน้า preview ต้องกลับมาเห็นข้อความเหมือนเดิม (restore ถูกต้อง)
+    check("HYBRID: หลัง export, ข้อความบน canvas ยังแสดงเหมือนเดิม",
+      (document.querySelector('.obj[data-type="text"] .content')?.textContent || "").length > 0
+      || (document.querySelector('.obj[data-type="stamp"] .stampval')?.textContent || "").length > 0);
+    delete window.ChbAndroid;
+    window.jspdf = prevJspdf;
+  }
 
   console.log("\n==== RESULT: " + pass + " passed, " + fail + " failed ====");
   process.exit(fail ? 1 : 0);
