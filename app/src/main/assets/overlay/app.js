@@ -36,7 +36,7 @@
     printNameTpl: "{n}_{key}",
     printScope: "all",
     // ตั้งค่าการส่งออก
-    exp: { embed: true, warnFont: true, pngScale: 2 }
+    exp: { embed: true, warnFont: true, pngScale: 2, pdfScale: 3 }
   };
   let history = []; // {name, time, thumb, dataUrl}
   let pendingImageAdd = null; // callback สำหรับเลือกรูปเพิ่มเป็น object
@@ -100,7 +100,6 @@
     }
   }
   function loadHide() { $("loadWrap").classList.remove("show"); }
-
   /* ---------------- helpers ---------------- */
   const curPage = () => state.pages[state.pageIdx] || null;
   function getObj(pageIdx, id) {
@@ -2055,7 +2054,12 @@
     } catch (e) { /* ฟอนต์โหลดไม่ได้ — ใช้ค่าเริ่มต้นเดิม */ }
   }
 
-  async function capturePage(pageIdx) {
+  function multiplierFor(preset) {
+    const v = parseInt(preset, 10);
+    return isNaN(v) ? 2 : clamp(v, 1, 4);
+  }
+
+  async function capturePage(pageIdx, scaleOverride) {
     const el = document.querySelector('.page[data-idx="' + pageIdx + '"]');
     if (!el) throw new Error("ไม่พบหน้า");
     const prevSel = state.sel;
@@ -2066,7 +2070,7 @@
     hints.forEach((h) => { h.style.display = "none"; });
     try {
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-      return await html2canvas(el, { scale: state.exp.pngScale || 2, backgroundColor: "#fff", useCORS: true, logging: false });
+      return await html2canvas(el, { scale: multiplierFor(scaleOverride) || multiplierFor(state.exp.pngScale), backgroundColor: "#fff", useCORS: true, logging: false });
     } finally {
       hints.forEach((h) => { h.style.display = ""; });
       state.sel = prevSel;
@@ -2113,17 +2117,18 @@
       const wasAll = state.viewAll;
       if (all && !wasAll) { state.viewAll = true; renderPages(); await new Promise((r) => requestAnimationFrame(r)); }
       const { jsPDF } = window.jspdf;
+      const ps = multiplierFor(state.exp.pdfScale);
       let doc = null;
       for (let k = 0; k < targets.length; k++) {
         loadProg((k / targets.length) * 100, "เรนเดอร์หน้า " + (k + 1) + "/" + targets.length);
-        const canvas = await capturePage(targets[k]);
-        const img = canvas.toDataURL("image/jpeg", 0.95);
+        const canvas = await capturePage(targets[k], ps);
+        const img = canvas.toDataURL("image/png");
         const pg = state.pages[targets[k]];
         const ar = pg.bg ? pg.bg.w / pg.bg.h : A4.w / A4.h;
         const hPt = 842, wPt = Math.round(842 * ar * 100) / 100;
         if (!doc) doc = new jsPDF({ unit: "pt", format: [wPt, hPt], orientation: wPt > hPt ? "l" : "p", compress: true });
         else doc.addPage([wPt, hPt], wPt > hPt ? "l" : "p");
-        doc.addImage(img, "JPEG", 0, 0, wPt, hPt);
+        doc.addImage(img, "PNG", 0, 0, wPt, hPt);
         if (k === targets.length - 1) loadProg(100);
       }
       if (all && !wasAll) { state.viewAll = false; renderPages(); }
@@ -2505,7 +2510,7 @@ render(allIdx());
       printNameTpl: state.printNameTpl,
       crossMode: crossMode(),
       crossGain: crossGain(),
-      exp: state.exp,
+      exp: Object.assign({}, state.exp),
       time: Date.now()
     };
     d.fonts = lite ? state.fonts.map((f) => Object.assign({}, f, { dataUrl: "" })) : state.fonts;
@@ -2564,6 +2569,8 @@ render(allIdx());
         $("expEmbedFonts").checked = state.exp.embed;
         $("expWarnFont").checked = state.exp.warnFont;
         $("expPngScale").value = String(state.exp.pngScale);
+        state.exp.pdfScale = clamp(parseInt(data.exp.pdfScale, 10) || 3, 1, 4);
+        if ($("expPdfScale")) $("expPdfScale").value = String(state.exp.pdfScale);
       }
       printIndexes();
       renderPrint();
@@ -2918,6 +2925,11 @@ render(allIdx());
       state.exp.pngScale = parseInt(e.target.value, 10) || 2;
       saveDraftSoon();
       toast("ความละเอียด PNG = " + state.exp.pngScale + "×");
+    });
+    $("expPdfScale").addEventListener("change", (e) => {
+      state.exp.pdfScale = parseInt(e.target.value, 10) || 3;
+      saveDraftSoon();
+      toast("ความละเอียด PDF = " + state.exp.pdfScale + "×");
     });
 
     // tabs

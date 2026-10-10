@@ -454,6 +454,14 @@
               <option value="3">3× (คมมาก)</option>
             </select>
           </div>
+          <div class="expopt">
+            <span class="txt"><b>ความละเอียด PDF</b><span>ค่าเริ่มต้น 3× คมชัดสำหรับงานพิมพ์ — ไฟล์ใหญ่ขึ้นตามสเกล</span></span>
+            <select id="expPdfScale" style="min-width:96px">
+              <option value="2">2× (มาตรฐาน)</option>
+              <option value="3" selected>3× (คมมาก)</option>
+              <option value="4">4× (งานพิมพ์)</option>
+            </select>
+          </div>
           <div id="expNote" class="expnote">กำลังตรวจสภาพ…</div>
         </div>
       </div>
@@ -522,7 +530,7 @@
 
 <div id="loadWrap" aria-live="polite">
   <div class="loadcard">
-    <div class="spinner"></div>
+    <div class="dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
     <div class="loadmsg" id="loadMsg">กำลังทำงาน…</div>
     <div class="progtrack"><div class="progbar" id="progBar"></div></div>
     <div class="progpct" id="progPct"></div>
