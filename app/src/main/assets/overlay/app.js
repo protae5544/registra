@@ -558,6 +558,7 @@
     $("pageEmpty").style.display = state.pages.length ? "none" : "block";
     fitFonts();
     updateSelDom();
+    renderStrip();
   }
 
   function buildObj(o, pageIdx, rec) {
@@ -935,6 +936,7 @@
     renderFill();
     renderPrint();
     renderExp();
+    renderCopyTargets();
   }
 
   /* ---------------- ตั้งค่าการส่งออก ---------------- */
@@ -1351,6 +1353,70 @@
     refreshAll();
     saveDraftSoon();
     toast("ลบฟิลด์แล้ว", "ok");
+  }
+
+  /* ---------------- ก๊อปชิ้นงานข้ามหน้า (ตำแหน่งเดียวกัน) ----------------
+     คงพิกัด/ขนาด/ฟอนต์/ตั้งค่า stamp ทุกอย่าง — ใช้ทำฟอร์มหลายหน้าที่ header/footer คงที่
+     ถ้าหน้าปลายทางมี key เดียวกันอยู่แล้ว จะข้ามหน้านั้น (กันซ้ำ) */
+  function copyObjToPage(srcObj, dstIdx) {
+    const dst = state.pages[dstIdx];
+    if (!dst || !srcObj) return null;
+    if (srcObj.key && dst.objects.some((o) => o.key === srcObj.key && o.id !== srcObj.id)) return null;
+    const copy = JSON.parse(JSON.stringify(srcObj));
+    copy.id = uid();
+    copy.z = maxZ(dst) + 1;
+    dst.objects.push(copy);
+    return copy;
+  }
+  function copyToTargetPage(targetIdx) {
+    const o = selected();
+    if (!o) { toast("เลือกชิ้นงานก่อน", "err"); return; }
+    if (targetIdx == null || targetIdx === srcPageOf()) return;
+    const copied = copyObjToPage(o, targetIdx);
+    if (!copied) { toast("ข้ามได้เพราะหน้าปลายทางมีฟิลด์ Key “" + (o.key || "—") + "” อยู่แล้ว", "warn"); return; }
+    refreshAll();
+    saveDraftSoon();
+    toast("ก๊อปไปหน้า " + (targetIdx + 1) + " แล้ว (ตำแหน่งเดียวกัน)", "ok");
+    status("ก๊อป “" + (o.key || "ชิ้นงาน") + "” ไปหน้า " + (targetIdx + 1) + " — ตำแหน่ง/ขนาด/ฟอนต์เหมือนเดิม", "ok");
+  }
+  function copyToAllPages() {
+    const o = selected();
+    if (!o) { toast("เลือกชิ้นงานก่อน", "err"); return; }
+    let done = 0, skipped = 0;
+    const src = srcPageOf();
+    state.pages.forEach((_, i) => {
+      if (i === src) return;
+      if (copyObjToPage(o, i)) done++; else skipped++;
+    });
+    refreshAll();
+    saveDraftSoon();
+    if (done) toast("ก๊อปไปทุกหน้า: สำเร็จ " + done + " หน้า" + (skipped ? " (ข้าม " + skipped + " หน้าที่มี Key เดียวกันแล้ว)" : ""), "ok");
+    else toast("ไม่มีหน้าที่ก๊อปได้ — ทุกหน้ามีฟิลด์ Key “" + (o.key || "") + "” อยู่แล้ว", "warn");
+    status("ก๊อปหลายหน้า: " + done + " สำเร็จ / " + skipped + " ข้ามเพราะซ้ำ", ok_or_err(done));
+  }
+  function ok_or_err(done) { return done ? "ok" : "warn"; }
+  // หน้าต้นทางของชิ้นงานที่เลือก (sel.page อาจต่างจากหน้าที่กำลังดู — ใช้ต้นทางเป็นตัวตัดตัวเลือก)
+  function srcPageOf() {
+    return state.sel ? state.sel.page : state.pageIdx;
+  }
+  function renderCopyTargets() {
+    const sel = $("edCopyTarget");
+    if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = "";
+    const blank = document.createElement("option");
+    blank.value = "";
+    blank.textContent = "— เลือกหน้าปลายทาง —";
+    sel.appendChild(blank);
+    const src = srcPageOf();
+    state.pages.forEach((_, i) => {
+      if (i === src) return; // ไม่เสนอหน้าต้นทาง
+      const op = document.createElement("option");
+      op.value = String(i);
+      op.textContent = "หน้า " + (i + 1);
+      sel.appendChild(op);
+    });
+    sel.value = cur && parseInt(cur, 10) < state.pages.length ? cur : "";
   }
 
   function duplicateSelected() {
@@ -2759,6 +2825,12 @@ render(allIdx());
     });
     $("btnFront").addEventListener("click", () => reorder(1));
     $("btnBack").addEventListener("click", () => reorder(-1));
+    $("btnCopyTarget").addEventListener("click", () => {
+      const v = parseInt($("edCopyTarget").value, 10);
+      if (isNaN(v)) { toast("เลือกหน้าปลายทางก่อน", "err"); return; }
+      copyToTargetPage(v);
+    });
+    $("btnCopyAll").addEventListener("click", copyToAllPages);
 
     // fill pane
     $("fillSample").addEventListener("click", () => {
@@ -2894,6 +2966,33 @@ render(allIdx());
     $("draftRestore").addEventListener("click", restoreDraft);
     $("draftDismiss").addEventListener("click", dismissDraft);
 
+    // --- Spatial Hall + sheet + strip ---
+    ["toolDoc", "toolFill"].forEach((id) => { const b = $(id); if (b) b.addEventListener("click", gotoStage); });
+    ["toolLib", "toolData"].forEach((id) => {
+      const b = $(id); if (!b) return;
+      b.addEventListener("click", () => { gotoStage(); toast("ส่วนนี้จะเปิดในเมนูเพิ่มเติมของหน้าทำงาน", "ok"); });
+    });
+    const moreBtn = $("btnMore");
+    if (moreBtn) moreBtn.addEventListener("click", () => openSheet("sheetWrap"));
+    const sheetCloseB = $("sheetClose");
+    if (sheetCloseB) sheetCloseB.addEventListener("click", () => closeSheet("sheetWrap"));
+    const backEl = $("sheetBack");
+    if (backEl) backEl.addEventListener("click", () => closeSheet("sheetWrap"));
+    const helpCloseB = $("helpClose");
+    if (helpCloseB) helpCloseB.addEventListener("click", () => closeSheet("sheetHelp"));
+    document.querySelectorAll("#sheetHelp .sheet-back").forEach((b) => b.addEventListener("click", () => closeSheet("sheetHelp")));
+    document.querySelectorAll("#sheetWrap .sitem[data-sheet]").forEach((el) => {
+      el.addEventListener("click", () => sheetAction(el.dataset.sheet, el));
+    });
+    const btnHome2 = $("btnHome");
+    if (btnHome2) btnHome2.addEventListener("click", gotoHall);
+    document.querySelectorAll(".cardfold .cf-head").forEach((h) => {
+      h.addEventListener("click", (e) => {
+        if (e.target.closest("button,input,select,textarea,label")) return; // ไม่พับตอนกดปุ่มภายใน
+        h.closest(".cardfold").classList.toggle("cardbody-folded");
+      });
+    });
+    document.body.dataset.view = "hall";
     window.addEventListener("resize", () => { fitFonts(); });
     window.addEventListener("pagehide", () => saveDraft());
   }
@@ -2907,6 +3006,67 @@ render(allIdx());
     if (name === "history") renderHistory();
   }
 
+  /* ---------------- Spatial Hall (หน้าแรก) + page strip + bottom sheet ---------------- */
+  let pageStripMode = false;
+  function renderStrip() {
+    const host = $("strip");
+    if (!host) return;
+    host.innerHTML = "";
+    state.pages.forEach((_, i) => {
+      const t = document.createElement("div");
+      t.className = "thumb" + (i === state.pageIdx ? " active" : "");
+      t.title = "หน้า " + (i + 1);
+      const num = document.createElement("span");
+      num.className = "tnum";
+      num.textContent = String(i + 1);
+      t.appendChild(num);
+      t.addEventListener("click", () => gotoPage(i));
+      host.appendChild(t);
+    });
+    const add = document.createElement("div");
+    add.className = "thumb add";
+    add.title = "เพิ่มหน้าว่าง";
+    add.textContent = "+";
+    add.addEventListener("click", addBlankPage);
+    host.appendChild(add);
+    const cur = host.children[state.pageIdx];
+    if (cur && cur.scrollIntoView) cur.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  }
+  function openSheet(id) {
+    const w = $(id);
+    if (!w) return;
+    w.classList.add("open");
+    w.setAttribute("aria-hidden", "false");
+  }
+  function closeSheet(id) {
+    const w = $(id);
+    if (!w) return;
+    w.classList.remove("open");
+    w.setAttribute("aria-hidden", "true");
+  }
+  function gotoHall() {
+    document.body.dataset.view = "hall";
+    setTimeout(() => { saveDraft(); }, 60);
+  }
+  function gotoStage() {
+    document.body.dataset.view = "stage";
+    fitFonts();
+  }
+  function sheetAction(name, el) {
+    if (el && el.id && el.id.indexOf("btn") === 0) { closeSheet("sheetWrap"); return; } // มี listener ของตัวเอง
+    closeSheet("sheetWrap");
+    setTimeout(() => {
+      if (name === "bg") $("bgFile").click();
+      else if (name === "data") { gotoStage(); $("jsonFile2").click(); }
+      else if (name === "font") $("fontFile").click();
+      else if (name === "export") {
+        gotoStage();
+        const c = $("cardExport");
+        if (c) { c.classList.remove("cardbody-folded"); if (c.scrollIntoView) c.scrollIntoView({ behavior: "smooth", block: "start" }); }
+      } else if (name === "help") openSheet("sheetHelp");
+    }, 60);
+  }
+
   /* ---------------- boot ---------------- */
   function boot() {
     wire();
@@ -2914,8 +3074,9 @@ render(allIdx());
     refreshFontSelectors();
     refreshAll();
     renderHistory();
+    renderStrip();
     loadDraftBanner();
-    status("พร้อมใช้งาน — โหลดภาพ/PDF เป็นพื้นหลัง แล้วเพิ่มฟิลด์ได้เลย", "ok");
+    status("พร้อมใช้งาน — เลือกเมนูที่ห้องโถงเพื่อเริ่ม หรือกด “เพิ่ม” มุมขวาในหน้าทำงาน", "ok");
     if (typeof pdfjsLib !== "undefined") {
       pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
     }

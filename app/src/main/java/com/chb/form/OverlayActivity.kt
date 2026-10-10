@@ -106,7 +106,7 @@ class OverlayActivity : ComponentActivity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#F2F6EE")) // ธีมพิสตาชิโอเดียวกับหน้าเว็บ (--bg)
+            setBackgroundColor(Color.parseColor("#FAF7EE")) // พื้นครีมธีม Quiet Power เดียวกับหน้าเว็บ (--bg)
         }
         root.addView(buildBar(), LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
@@ -136,7 +136,7 @@ class OverlayActivity : ComponentActivity() {
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(Color.parseColor("#5B8C4B")) // สีแบรนด์พิสตาชิโอเดียวกับธีมเว็บ
+            setBackgroundColor(Color.parseColor("#4A8C3F")) // สีแบรนด์เขียวธีม Quiet Power เดียวกับธีมเว็บ
             setPadding(dp(12), dp(8), dp(8), dp(8))
         }
         val title = TextView(this).apply {

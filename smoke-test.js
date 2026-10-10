@@ -86,7 +86,7 @@ async function run() {
     check("แผงจูนยุบไม่ได้ครอบ " + id + " ไว้ (หน้ามองเห็นได้จริง)",
       !crossPanelEl.contains($(id)));
   });
-  check("นับจำนวน <header> ที่เปิด-ปิดตรงกัน", document.querySelectorAll("header").length === 1);
+  check("นับจำนวน <header> ในหน้าตรงตามโครง (โถงหลัก + แถบควบคุม)", document.querySelectorAll("header").length === 2);
 
   // 2) เพิ่ม text field
   click(document.querySelector('[data-add="text"]'));

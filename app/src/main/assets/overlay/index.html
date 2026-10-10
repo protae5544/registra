@@ -17,187 +17,159 @@
 <link rel="preload" href="https://f005.backblazeb2.com/file/asset-/fonts/THSarabunNew.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="https://f005.backblazeb2.com/file/asset-/fonts/THSarabunNew+Bold.woff2" as="font" type="font/woff2" crossorigin>
 </head>
-<body>
+<body data-view="hall">
 
-<!-- ══ แถบหัวแอป: นำทางชุดข้อมูล + สวิตช์มุมมอง ══ -->
-<header class="card appbar">
-  <div class="brandmark"><span class="dot"></span>Overlay Composer</div>
-  <span class="sep"></span>
-  <div class="stepnav">
-    <span class="lab">ชุดข้อมูล</span>
-    <button id="btnFirst" type="button" disabled title="ชุดแรกสุด">|◀</button>
-    <button id="btnPrev"  type="button" disabled title="ก่อนหน้า">◀</button>
-    <span id="recordCounter"><b>—/—</b></span>
-    <button id="btnNext"  type="button" disabled title="ถัดไป">▶</button>
-    <button id="btnLast"  type="button" disabled title="ชุดสุดท้าย">▶|</button>
+<!-- ═══════════════ โถงหลัก (หน้าแรก) — Spatial Hall ═══════════════ -->
+<section id="home" class="home" aria-label="โถงหลัก">
+  <div class="hall">
+    <div class="hall-glare" aria-hidden="true"></div>
+    <div class="hall-floor" aria-hidden="true"></div>
+    <div class="hall-unit hall-unit-far" aria-hidden="true">
+      <div class="ha-bar" style="width:42%"></div>
+      <div class="ha-line"></div><div class="ha-line" style="width:66%"></div><div class="ha-line" style="width:52%"></div>
+    </div>
+    <div class="hall-unit hall-unit-mid" aria-hidden="true">
+      <div class="ha-bar"></div>
+      <div class="ha-line"></div><div class="ha-line" style="width:60%"></div>
+      <div class="ha-btns"><i></i><i></i></div>
+    </div>
+
+    <header class="hall-head">
+      <div class="brandmark"><span class="dot"></span>Overlay Composer</div>
+      <p class="hall-tag">โรงงานฟอร์มของคุณ — สร้าง เครื่องมือ ที่ใช้เองได้ตั้งแต่วันนี้</p>
+    </header>
+
+    <div class="hall-front">
+      <div class="hall-dock" role="navigation" aria-label="ห้องงาน">
+        <button id="toolDoc" type="button" class="dock-btn dock-hero">
+          <span class="ic">📄</span>
+          <b>สร้างเทมเพลตเอกสาร</b>
+          <span>เอาใบปิด/ภาพจริงมาวาง แล้วประทับข้อมูลบนนั้น · ส่งออก PDF/PNG/HTML</span>
+        </button>
+        <button id="toolFill" type="button" class="dock-btn">
+          <span class="ic">✍️</span>
+          <b>กรอกเอกสาร</b>
+          <span>ใช้เทมเพลต + ชุดข้อมูล</span>
+        </button>
+        <button id="toolLib" type="button" class="dock-btn">
+          <span class="ic">🗂</span>
+          <b>คลังเทมเพลต</b>
+          <span>ผังงานที่บันทึกไว้</span>
+        </button>
+        <button id="toolData" type="button" class="dock-btn">
+          <span class="ic">📊</span>
+          <b>ชุดข้อมูล</b>
+          <span>JSON · ฟิลด์ · ฟอนต์</span>
+        </button>
+      </div>
+    </div>
+
+    <p class="hall-note">ต่างจากเมื่อก่อน ตรงที่รายการนี้หายไป ถ้ายังเป็นเช่นนั้นจริง งานของคุณจะอยู่แค่บนเครื่องเดียว — <b>สร้างเครื่องมือเอง ใช้เอง ไม่ต้องรอใครอนุมัติ</b></p>
   </div>
-  <span class="spacer"></span>
-  <button id="btnSnap" type="button" class="snap-on" title="ล็อกชิดขอบ/กึ่งกลางอัตโนมัติ">⊹ Snap ทำงาน</button>
-  <button id="btnViewAll" type="button" class="view-all" title="ดูทุกหน้าพร้อมกัน">☰ ทุกหน้า</button>
-  <button id="btnCross" type="button" class="cross-off" title="เป้ากากบาทสำหรับวางตำแหน่งละเอียดแบบสัมพัทธ์">✛ เป้ากากบาท (ปิด)</button>
-  <button id="btnCrossPanel" type="button" aria-expanded="false" aria-controls="crossPanel" title="ค่าความไวและจุดยึดของเป้ากากบาท">⚙ จูน</button>
-  <button id="btnFonts" type="button" title="จัดการฟอนต์ที่แนบ">🔤 ฟอนต์</button>
-</header>
+</section>
 
-<div id="crossPanel" class="crosspanel">
-  <div class="coordbar">
-    <span id="coordReadout" class="muted">พิกัด: —</span>
+<!-- ═══════════════ เวทีทำงาน (Composer) ═══════════════ -->
+<main id="stage">
+
+  <!-- กู้คืนงานเก่า -->
+  <div id="draftBanner" class="bar draft-banner">
+    <span>พบงานที่ยังไม่ได้เสร็จจากครั้งก่อน — กู้คืนไหม?</span>
     <span class="spacer"></span>
-    <label class="muted">โหมด
-      <select id="crossMode" title="Trackpad = แตะไม่ย้ายเป้า เลื่อนนิ้วแบบสัมพัทธ์ (นิ้วไม่บังเป้า) / แตะ = วางเป้าที่จุดที่แตะ">
-        <option value="trackpad">เลื่อนสัมพัทธ์ (Trackpad)</option>
-        <option value="tap">แตะวางเป้า (Absolute)</option>
-      </select>
-    </label>
-    <label class="muted">จุดยึด
-      <select id="crossAnchor" title="จุดยึดของเป้ากากบาท">
-        <option value="tl">เป้าที่มุมซ้ายบน</option>
-        <option value="c">เป้าที่กลางกล่อง</option>
-      </select>
-    </label>
-    <label class="muted">ความไว
-      <input id="crossGain" type="number" step="0.1" min="0.1" max="3" value="1">
-    </label>
-    <button id="crossNudgeL" type="button" class="mini" title="เลื่อนซ้าย 0.1%">◀.1</button>
-    <button id="crossNudgeU" type="button" class="mini" title="เลื่อนขึ้น 0.1%">▲.1</button>
-    <button id="crossNudgeD" type="button" class="mini" title="เลื่อนลง 0.1%">▼.1</button>
-    <button id="crossNudgeR" type="button" class="mini" title="เลื่อนขวา 0.1%">.1▶</button>
+    <button id="draftRestore" class="primary" type="button">กู้คืน</button>
+    <button id="draftDismiss" type="button">ทิ้ง</button>
   </div>
-</div>
 
-<!-- ══ กู้คืนงานเก่า ══ -->
-<div id="draftBanner" class="bar draft-banner">
-  <span>พบงานที่ยังไม่ได้เสร็จจากครั้งก่อน — กู้คืนไหม?</span>
-  <span class="spacer"></span>
-  <button id="draftRestore" class="primary" type="button">กู้คืน</button>
-  <button id="draftDismiss" type="button">ทิ้ง</button>
-</div>
-
-<!-- ══ แถบเครื่องมือ: แบ่งกลุ่มตามลำดับการใช้งาน ══ -->
-<div class="card">
-  <div class="title">สร้างและส่งออก <span class="hint">เรียงตามลำดับที่ใช้จริง: วางชิ้นงาน → ส่งออก → เก็บเทมเพลต</span></div>
-  <div class="tgroups">
-    <div class="tgroup">
-      <div class="gl">1 · เพิ่มชิ้นงาน</div>
-      <div class="row">
-        <button class="add-btn" type="button" data-add="text" title="ข้อความที่ผูกกับ key ของข้อมูล">+ ข้อความ</button>
-        <button class="add-btn" type="button" data-add="image" title="รูปโลโก้/ลายเซ็น/รูปประกอบ">+ รูป</button>
-        <button class="add-btn" type="button" data-add="qr" title="คิวอาร์โค้ดจากค่าในข้อมูล">+ QR</button>
-        <button class="add-btn" type="button" data-add="stamp" title="วันที่/เวลาปัจจุบัน คำนวณใหม่ทุกครั้งที่เปิดหรือพิมพ์">+ วันเวลา</button>
-      </div>
+  <!-- แถบควบคุมหลัก -->
+  <header class="card appbar">
+    <button id="btnHome" type="button" title="กลับไปโถงหลัก">⌂ โถงหลัก</button>
+    <span class="brandmark brandmark-s"><span class="dot"></span>เทมเพลตเอกสาร</span>
+    <span class="sep"></span>
+    <div class="stepnav">
+      <span class="lab">ชุดข้อมูล</span>
+      <button id="btnFirst" type="button" disabled title="ชุดแรกสุด">|◀</button>
+      <button id="btnPrev"  type="button" disabled title="ก่อนหน้า">◀</button>
+      <span id="recordCounter"><b>—/—</b></span>
+      <button id="btnNext"  type="button" disabled title="ถัดไป">▶</button>
+      <button id="btnLast"  type="button" disabled title="ชุดสุดท้าย">▶|</button>
     </div>
-    <div class="tgroup">
-      <div class="gl">2 · ส่งออกเอกสาร</div>
-      <div class="row">
-        <button class="primary" id="btnPDFone" type="button" title="สร้าง PDF เฉพาะหน้าที่กำลังดูอยู่">PDF หน้านี้</button>
-        <button id="btnPDFall" type="button" title="สร้าง PDF ครบทุกหน้า">PDF ทุกหน้า</button>
-        <button id="btnPNG" type="button" title="บันทึกหน้าที่กำลังดูเป็นภาพ PNG">PNG หน้านี้</button>
-      </div>
-      <div class="row">
-        <button class="add-btn" id="btnExportHtml" type="button" title="ไฟล์ HTML สำเร็จพร้อมปุ่มพิมพ์ เปิดต่อที่เครื่องอื่นได้">ไฟล์ HTML → PDF</button>
-      </div>
+    <span class="spacer"></span>
+    <div class="stepnav">
+      <button id="btnPgPrev" type="button" disabled title="หน้าก่อนหน้า">◀</button>
+      <span id="pageCounter"><b>0/0</b></span>
+      <button id="btnPgNext" type="button" disabled title="หน้าถัดไป">▶</button>
     </div>
-    <div class="tgroup">
-      <div class="gl">3 · เก็บเทมเพลต</div>
-      <div class="row">
-        <button id="btnExportLayout" type="button" title="บันทึกผังงานเป็นไฟล์ เผื่อย้ายเครื่อง">บันทึกผังงาน</button>
-        <button id="btnImportLayout" type="button" title="เปิดผังงานที่บันทึกไว้">เปิดผังงาน</button>
-        <button id="btnExportKeys" type="button" title="ดูรายชื่อ key ทั้งหมดที่ใช้ในผังงาน">ดูรายชื่อ key</button>
-      </div>
-    </div>
-  </div>
-</div>
+    <span class="gem-label"><span id="sumRecords">0</span> ชุด · <span id="sumObjects">0</span> ชิ้นงาน · <span id="sumFields">0</span> ฟิลด์</span>
+    <button id="btnMore" type="button" title="เปิดเมนูเพิ่มเติม">⋮ เพิ่ม</button>
+  </header>
 
-<div class="app">
-  <!-- ══════════ ซ้าย: เอกสาร + ข้อมูล ══════════ -->
-  <div>
-    <div class="card card-doc">
-      <div class="title">เอกสาร <span class="hint">แตะ = เลือก · ลาก = ย้าย · ลากจุดกลม = ปรับขนาด</span></div>
-
-      <div class="row" style="margin-top:8px;justify-content:center">
-        <button id="btnPgPrev" type="button">◀ หน้าก่อน</button>
-        <span id="pageCounter"><b>0/0</b></span>
-        <button id="btnPgNext" type="button">หน้าถัดไป ▶</button>
-      </div>
-
-      <div style="margin-top:12px">
-        <div id="canvasWrap"></div>
-        <div id="pageEmpty" class="muted" style="display:none;text-align:center;padding:30px 10px">
-          ยังไม่มีหน้าเอกสาร — แนบภาพ/PDF ด้านล่าง หรือกด “เพิ่มหน้าว่าง”
-        </div>
-        <div class="row" style="margin-top:10px">
-          <button id="btnAddPage" type="button" class="add-btn">+ เพิ่มหน้าว่าง</button>
-          <button id="btnDelPage" type="button" class="warn">ลบหน้านี้</button>
-        </div>
-      </div>
-
-      <div class="group">
-        <div class="gh">พื้นหลังเอกสาร</div>
-        <div class="muted" style="font-size:var(--t-xs)">รองรับภาพ (png/jpg/webp) และ PDF — เลือกได้หลายไฟล์</div>
-        <div class="row" style="margin-top:8px">
-          <input type="file" id="bgFile" multiple accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/svg+xml,.svg,application/pdf,.pdf">
-          <button id="bgClear" type="button" class="warn">เอาพื้นหลังออก</button>
-          <span id="bgStatus" class="status muted">ยังไม่ได้ใส่พื้นหลัง</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="card card-import">
-      <div class="title">นำเข้าข้อมูล <span class="hint">ทุกชุดที่นำเข้าจะถูกรวมเข้างานเดียวกัน</span></div>
-
-      <div class="group" style="margin-top:8px">
-        <div class="gh">จากไฟล์</div>
-        <div class="row">
-          <input type="file" id="jsonFile2" accept=".json,application/json" multiple>
-          <button id="btnLoadFileJson" type="button" class="link">เลือกหลายไฟล์</button>
-        </div>
-        <div class="muted" style="font-size:var(--t-xs);margin-top:6px">
-          รองรับทั้ง <code>[{...}]</code> และ <code>{"records":[...]}</code> · ถ้ามีไฟล์เสีย ระบบจะข้ามไฟล์นั้นและคงของเดิมไว้
-        </div>
-        <div class="row" style="margin-top:8px">
-          <span id="jsonStatus" class="status muted">ยังไม่ได้โหลดข้อมูล</span>
-          <span class="spacer"></span>
-          <button id="btnClearJson" type="button" class="warn">ล้างข้อมูลทั้งหมด</button>
-        </div>
-      </div>
-
-      <div class="group">
-        <div class="gh">วางข้อความ JSON</div>
-        <textarea id="pasteJson" placeholder='[{"name":"สมชาย","id":"A001"}]' spellcheck="false"></textarea>
-        <div class="row" style="margin-top:8px">
-          <button id="btnPasteLoad2" type="button" class="primary">เพิ่มข้อมูลจากข้อความ</button>
-          <input type="file" id="jsonFile" accept=".json,application/json" class="hidden">
-          <button id="btnPasteLoad" type="button" title="เลือกไฟล์ JSON ไฟล์เดียว">เลือกไฟล์เดียว</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="card card-fonts">
-      <div class="title">ฟอนต์ที่แนบ <span class="hint">ฝังลงไฟล์ที่ส่งออกให้อัตโนมัติ</span></div>
-      <div style="margin-top:10px">
-        <input type="file" id="fontFile" multiple accept=".ttf,.otf,.ttc,.otc,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2">
-        <div class="row" style="margin-top:8px">
-          <select id="fontDefault"><option value="">ค่าเริ่มต้นเดิม</option></select>
-          <span id="fontStatus" class="status muted">ยังไม่มีฟอนต์ที่แนบ</span>
-          <span class="spacer"></span>
-          <button id="fontClear" type="button" class="warn">ลบฟอนต์ทั้งหมด</button>
-        </div>
-        <div class="muted" style="font-size:var(--t-xs);margin-top:6px">
-          ถ้าชื่อไฟล์มีคำว่า Bold/ตัวหนา ระบบจะจับคู่เป็นตัวหนาของครอบครัวเดียวกันให้เอง
-        </div>
-        <div class="list" id="fontList"><div class="muted">ยังไม่มีฟอนต์ที่แนบ</div></div>
-      </div>
-    </div>
-
-    <div class="card card-recpreview">
-      <div class="title">ข้อมูลชุดที่กำลังดู</div>
-      <pre id="recordPreview">ยังไม่มีข้อมูล</pre>
+  <div id="crossPanel" class="crosspanel">
+    <div class="coordbar">
+      <span id="coordReadout" class="muted">พิกัด: —</span>
+      <span class="spacer"></span>
+      <label class="muted">โหมด
+        <select id="crossMode" title="Trackpad = แตะไม่ย้ายเป้า เลื่อนนิ้วแบบสัมพัทธ์ (นิ้วไม่บังเป้า) / แตะ = วางเป้าที่จุดที่แตะ">
+          <option value="trackpad">เลื่อนสัมพัทธ์ (Trackpad)</option>
+          <option value="tap">แตะวางเป้า (Absolute)</option>
+        </select>
+      </label>
+      <label class="muted">จุดยึด
+        <select id="crossAnchor" title="จุดยึดของเป้ากากบาท">
+          <option value="tl">เป้าที่มุมซ้ายบน</option>
+          <option value="c">เป้าที่กลางกล่อง</option>
+        </select>
+      </label>
+      <label class="muted">ความไว
+        <input id="crossGain" type="number" step="0.1" min="0.1" max="3" value="1">
+      </label>
+      <button id="crossNudgeL" type="button" class="mini" title="เลื่อนซ้าย 0.1%">◀.1</button>
+      <button id="crossNudgeU" type="button" class="mini" title="เลื่อนขึ้น 0.1%">▲.1</button>
+      <button id="crossNudgeD" type="button" class="mini" title="เลื่อนลง 0.1%">▼.1</button>
+      <button id="crossNudgeR" type="button" class="mini" title="เลื่อนขวา 0.1%">.1▶</button>
     </div>
   </div>
 
-  <!-- ══════════ ขวา: แท็บงาน + ตั้งค่าส่งออก ══════════ -->
-  <div>
-    <div class="card card-tabs">
+  <!-- แถบเครื่องมือ 1 แถว: สร้าง → ย้าย → ส่งออก -->
+  <div class="card taller">
+    <div class="row toolstrip">
+      <span class="ts-lab">เพิ่ม</span>
+      <button class="add-btn" type="button" data-add="text" title="ข้อความที่ผูกกับ key ของข้อมูล">+ ข้อความ</button>
+      <button class="add-btn" type="button" data-add="image" title="รูปโลโก้/ลายเซ็น/รูปประกอบ">+ รูป</button>
+      <button class="add-btn" type="button" data-add="qr" title="คิวอาร์โค้ดจากค่าในข้อมูล">+ QR</button>
+      <button class="add-btn" type="button" data-add="stamp" title="วันที่/เวลาปัจจุบัน คำนวณใหม่ทุกครั้งที่เปิดหรือพิมพ์">+ วันเวลา</button>
+      <span class="ts-div" aria-hidden="true"></span>
+      <button id="btnSnap" type="button" class="snap-on" title="ล็อกชิดขอบ/กึ่งกลางอัตโนมัติ">⊹ Snap ทำงาน</button>
+      <button id="btnViewAll" type="button" class="view-all" title="ดูทุกหน้าพร้อมกัน">☰ ทุกหน้า</button>
+      <button id="btnCross" type="button" class="cross-off" title="เป้ากากบาทสำหรับวางตำแหน่งละเอียดแบบสัมพัทธ์">✛ เป้ากากบาท (ปิด)</button>
+      <button id="btnCrossPanel" type="button" aria-expanded="false" aria-controls="crossPanel" title="ค่าความไวและจุดยึดของเป้ากากบาท">⚙ จูน</button>
+      <button id="btnFonts" type="button" title="จัดการฟอนต์ที่แนบ">🔤 ฟอนต์</button>
+      <span class="spacer"></span>
+      <button id="btnPNG" type="button" title="บันทึกหน้าที่กำลังดูเป็นภาพ PNG">PNG หน้านี้</button>
+      <button id="btnPDFone" type="button" title="สร้าง PDF เฉพาะหน้าที่กำลังดูอยู่">PDF หน้านี้</button>
+      <button id="btnPDFall" type="button" class="primary" title="สร้าง PDF ครบทุกหน้า">PDF ทุกหน้า</button>
+    </div>
+  </div>
+
+  <!-- ══ เวที: กระดาษ + ตู้เครื่องมือ ══ -->
+  <div class="stage-wrap">
+    <section class="card card-stage tall">
+      <div id="canvasWrap"></div>
+      <div id="pageEmpty" class="muted" style="display:none;text-align:center;padding:40px 16px">ยังไม่มีหน้าเอกสาร — เมนูเพิ่มเติม → พื้นหลังเอกสาร</div>
+      <div class="row stage-foot">
+        <button id="btnAddPage" type="button" class="add-btn" title="เพิ่มหน้าว่าง">+ เพิ่มหน้าว่าง</button>
+        <button id="btnDelPage" type="button" class="warn" title="ลบหน้าปัจจุบัน">ลบหน้านี้</button>
+        <span id="bgStatus" class="status muted">ยังไม่ได้ใส่พื้นหลัง</span>
+        <span class="spacer"></span>
+        <button id="bgClear" type="button" class="warn">เอาพื้นหลังออก</button>
+        <input id="bgFile" class="hidden" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/svg+xml,.svg,application/pdf,.pdf">
+      </div>
+    </section>
+
+    <div class="stripbar">
+      <div id="strip" class="strip" aria-label="ตัวลิสต์หน้า"></div>
+    </div>
+
+    <!-- ══ ตู้เครื่องมือ ══ -->
+    <section class="card card-stage tall">
       <div class="tabs">
         <button class="tab active" type="button" data-tab="edit">ชิ้นงาน</button>
         <button class="tab" type="button" data-tab="fill">กรอกข้อมูล</button>
@@ -208,21 +180,16 @@
 
       <!-- ── ชิ้นงาน ── -->
       <div class="pane active" data-pane="edit">
-        <div class="summary">
-          <div class="box"><div class="muted">ชุดข้อมูล</div><div class="n" id="sumRecords">0</div></div>
-          <div class="box"><div class="muted">ฟิลด์</div><div class="n" id="sumFields">0</div></div>
-          <div class="box"><div class="muted">ชิ้นงาน</div><div class="n" id="sumObjects">0</div></div>
-          <div class="box"><div class="muted">ติ้กไว้</div><div class="n" id="sumSelected">0</div></div>
+        <div class="row" style="justify-content:space-between;margin-top:6px">
+          <div id="sumSelected" class="gem-label" style="min-height:24px">ติ้กไว้ 0</div>
+          <div id="nsHintGem" class="gem-label" style="min-height:24px">แตะชิ้นงานเพื่อแก้</div>
         </div>
-        <div id="noSelection" class="muted" style="margin-top:12px">แตะชิ้นงานบนเอกสารเพื่อเลือก หรือกดปุ่ม “เพิ่มชิ้นงาน” ด้านบน</div>
+        <div id="noSelection" class="muted" style="margin-top:10px">แตะชิ้นงานบนเอกสารเพื่อเลือก หรือกดปุ่ม “เพิ่มชิ้นงาน” ด้านบน</div>
 
         <div id="editor" style="display:none">
           <div class="group">
             <div class="gh">ตำแหน่งและขนาด (%)</div>
-            <div class="grid2"><label>X %</label><input id="edX" type="number" step="0.1"></div>
-            <div class="grid2"><label>Y %</label><input id="edY" type="number" step="0.1"></div>
-            <div class="grid2"><label>กว้าง %</label><input id="edW" type="number" step="0.1"></div>
-            <div class="grid2"><label>สูง %</label><input id="edH" type="number" step="0.1"></div>
+            <div class="fld4"><input id="edX" type="number" step="0.1"><input id="edY" type="number" step="0.1"><input id="edW" type="number" step="0.1"><input id="edH" type="number" step="0.1"></div>
             <div class="row" style="margin-top:10px">
               <button id="btnApplyPos" type="button" class="primary">วางตำแหน่งตามตัวเลข</button>
             </div>
@@ -241,9 +208,7 @@
               </select>
             </div>
             <div id="stampbox" style="display:none">
-              <div class="muted" style="font-size:var(--t-xs);margin-bottom:8px">
-                ฝังค่าไว้ในเทมเพลต แต่แสดงเป็นเวลาปัจจุบันใหม่ทุกครั้งที่เปิดไฟล์หรือพิมพ์
-              </div>
+              <div class="muted" style="font-size:var(--t-xs);margin-bottom:8px">ฝังค่าไว้ในเทมเพลต แต่แสดงเป็นเวลาปัจจุบันใหม่ทุกครั้งที่เปิดไฟล์หรือพิมพ์</div>
               <div class="grid2"><label>แสดงอะไร</label>
                 <select id="edStampPart">
                   <option value="date">วันที่</option>
@@ -260,9 +225,7 @@
               </div>
               <div class="grid2"><label>วันที่ที่กำหนด</label><input id="edStampBase" type="text" placeholder="YYYY-MM-DD"></div>
               <div class="grid2"><label>เลื่อนเดือน</label><input id="edStampShift" type="number" step="1" min="-12" max="12"></div>
-              <div class="muted" style="font-size:var(--t-xs);margin-top:6px">
-                เลื่อนได้ −12…+12 เดือน (บวก = อนาคต, ลบ = อดีต) · ดูตัวอย่าง: <b id="stampPreview">—</b>
-              </div>
+              <div class="muted" style="font-size:var(--t-xs);margin-top:6px">เลื่อนได้ −12…+12 เดือน · ดูตัวอย่าง: <b id="stampPreview">—</b></div>
               <div id="stampWarn" class="notice" role="status"></div>
               <div id="stampFrozenInfo" class="frozeninfo" style="display:none"></div>
               <div class="row" style="margin-top:8px">
@@ -273,30 +236,23 @@
 
           <div class="group" id="grpText">
             <div class="gh">ตัวอักษร</div>
-            <div class="grid2"><label>ฟอนต์</label>
-              <select id="edFamily"><option value="">ค่าเริ่มต้นเดิม</option></select>
-            </div>
+            <div class="grid2"><label>ฟอนต์</label><select id="edFamily"><option value="">ค่าเริ่มต้นเดิม</option></select></div>
             <div class="grid2"><label>ขนาด (px)</label><input id="edFontSize" type="number" step="1"></div>
-            <div class="grid2"><label>ตัวหนา</label>
-              <span class="row"><input id="edBold" type="checkbox"><span class="muted" style="font-size:var(--t-xs)" id="edBoldNote"></span></span>
-            </div>
+            <div class="grid2"><label>ตัวหนา</label><span class="row"><input id="edBold" type="checkbox"><span class="muted" style="font-size:var(--t-xs)" id="edBoldNote"></span></span></div>
             <div class="grid2"><label>เอียง</label><input id="edItalic" type="checkbox"></div>
             <div class="grid2"><label>ระยะตัวอักษร</label><input id="edLetter" type="number" step="0.1"></div>
             <div class="grid2"><label>ระยะบรรทัด</label><input id="edLineHeight" type="number" step="0.05"></div>
             <div class="grid2"><label>จัดแนว</label>
-              <select id="edAlign"><option value="left">ซ้าย</option><option value="center">กลาง</option><option value="right">ขวา</option></select>
-            </div>
+              <select id="edAlign"><option value="left">ซ้าย</option><option value="center">กลาง</option><option value="right">ขวา</option></select></div>
             <div class="grid2"><label>แนวตั้ง</label>
-              <select id="edValign"><option value="middle">กลาง</option><option value="top">บน</option><option value="bottom">ล่าง</option></select>
-            </div>
-            <div class="ed-row-color"><label>สี</label><input id="edColor" type="color" value="#1F2E1B"><span class="muted" style="font-size:var(--t-xs)">ใช้กับข้อความเท่านั้น</span></div>
+              <select id="edValign"><option value="middle">กลาง</option><option value="top">บน</option><option value="bottom">ล่าง</option></select></div>
+            <div class="ed-row-color"><label>สี</label><input id="edColor" type="color" value="#1F2E1B"><span class="muted" style="font-size:var(--t-xs)">ข้อความเท่านั้น</span></div>
           </div>
 
           <div class="group" id="grpImage">
             <div class="gh">รูปภาพ</div>
             <div class="grid2"><label>วิธีใส่รูป</label>
-              <select id="edImageFit"><option value="contain">พอดีกรอบ (ไม่ตัด)</option><option value="cover">เต็มกรอบ (ตัด)</option><option value="fill">ยืดเต็ม</option></select>
-            </div>
+              <select id="edImageFit"><option value="contain">พอดีกรอบ (ไม่ตัด)</option><option value="cover">เต็มกรอบ (ตัด)</option><option value="fill">ยืดเต็ม</option></select></div>
           </div>
 
           <div class="group">
@@ -304,6 +260,17 @@
             <div class="grid2"><label>หมุน (องศา)</label><input id="edRotation" type="number" step="1"></div>
             <div class="grid2"><label>ล็อกสัดส่วน</label><input id="edLockAspect" type="checkbox"></div>
             <div class="grid2"><label>ล็อกตำแหน่ง</label><input id="edLocked" type="checkbox"></div>
+          </div>
+
+          <div class="group" id="grpCopyPage">
+            <div class="gh">ก๊อปข้ามหน้า (ตำแหน่งเดียวกัน)</div>
+            <div class="grid2"><label>ไปหน้า</label>
+              <select id="edCopyTarget"><option value="">— เลือกหน้าปลายทาง —</option></select></div>
+            <div class="row" style="margin-top:8px">
+              <button id="btnCopyTarget" type="button" class="add-btn">ก๊อปไปหน้านี้</button>
+              <button id="btnCopyAll" type="button" class="add-btn">ก๊อปไปทุกหน้า</button>
+            </div>
+            <div class="muted" style="font-size:var(--t-xs);margin-top:6px">ถ้าหน้าปลายทางมีฟิลด์ Key เดียวกันอยู่แล้ว จะข้ามหน้านั้น (กันซ้ำ)</div>
           </div>
 
           <div class="row" style="margin-top:14px">
@@ -339,9 +306,7 @@
       <!-- ── ฟิลด์ทั้งหมด ── -->
       <div class="pane" data-pane="fields">
         <div class="title">ฟิลด์ทั้งหมด <span class="hint">ติ้กช่องข้างฟิลด์เพื่อปรับหลายชิ้นพร้อมกัน</span></div>
-        <div class="row" style="margin-top:8px">
-          <button id="btnAddField" type="button" class="add-btn">+ เพิ่มฟิลด์ใหม่</button>
-        </div>
+        <div class="row" style="margin-top:8px"><button id="btnAddField" type="button" class="add-btn">+ เพิ่มฟิลด์ใหม่</button></div>
         <div class="list" id="schemaList"><div class="muted">ยังไม่มีฟิลด์</div></div>
 
         <div class="batchbox" id="batchBox">
@@ -366,18 +331,14 @@
           <div class="brow"><label class="bchk"><input type="checkbox" id="bOnColor">สี</label><input id="bColor" type="color" value="#1F2E1B"></div>
           <div class="brow"><label class="bchk"><input type="checkbox" id="bOnText">เนื้อหา</label><input id="bText" type="text" placeholder="ค่าตัวอย่าง/เนื้อหา"></div>
           <div class="brow"><label class="bchk"><input type="checkbox" id="bOnKey">เปลี่ยน Key</label><input id="bKey" type="text" placeholder="ชื่อ key ใหม่"></div>
-          <div class="row" style="margin-top:10px">
-            <button id="batchApply" type="button" class="primary">ใช้กับที่ติ้กไว้</button>
-          </div>
+          <div class="row" style="margin-top:10px"><button id="batchApply" type="button" class="primary">ใช้กับที่ติ้กไว้</button></div>
         </div>
       </div>
 
       <!-- ── พิมพ์ ── -->
       <div class="pane" data-pane="print">
         <div class="title">ลำดับการสั่งพิมพ์</div>
-        <div class="muted" style="font-size:var(--t-xs);margin-top:4px">
-          ลากที่หูหมาย ⠿ เพื่อจัดลำดับเอง · ติ้กเฉพาะรายการที่ต้องการพิมพ์
-        </div>
+        <div class="muted" style="font-size:var(--t-xs);margin-top:4px">ลากที่หูหมาย ⠿ เพื่อจัดลำดับเอง · ติ้กเฉพาะรายการที่ต้องการพิมพ์</div>
         <div class="row" style="margin-top:8px">
           <button id="printAllCheck" type="button" class="mini">ติ้กทั้งหมด</button>
           <button id="printNoneCheck" type="button" class="mini">ล้างทั้งหมด</button>
@@ -385,22 +346,19 @@
         </div>
         <div class="list" id="printList" style="max-height:300px"></div>
         <div class="batchbox accent">
-          <div class="gh" style="font-size:var(--t-xs);font-weight:700;color:var(--brand-deep);margin-bottom:8px">ตั้งชื่อไฟล์</div>
+          <div class="gh" style="font-size:var(--t-xs);font-weight:700;margin-bottom:8px">ตั้งชื่อไฟล์</div>
           <div class="grid2"><label>ดึงค่าจาก</label>
-            <select id="printNameKey"><option value="">(ดัชนีลำดับ)</option></select>
-          </div>
+            <select id="printNameKey"><option value="">(ดัชนีลำดับ)</option></select></div>
           <div class="grid2"><label>รูปแบบชื่อ</label><input id="printNameTpl" type="text" value="{n}_{key}"></div>
           <div class="grid2"><label>หน้าที่พิมพ์</label>
-            <select id="printScope"><option value="all">ทุกหน้า</option><option value="current">เฉพาะหน้าปัจจุบัน</option></select>
-          </div>
+            <select id="printScope"><option value="all">ทุกหน้า</option><option value="current">เฉพาะหน้าปัจจุบัน</option></select></div>
           <div class="row" style="margin-top:10px">
             <button id="printOneFile" type="button" class="primary">สร้างไฟล์เดียวรวมทุกชุด</button>
             <button id="printSplit" type="button">แยกไฟล์ทีละชุด</button>
             <button id="printNow" type="button">สั่งพิมพ์ทันที</button>
           </div>
           <div class="muted" style="font-size:var(--t-xs);margin-top:6px">
-            <code>{i}</code> ลำดับ · <code>{n}</code> ลำดับเต็ม · <code>{key}</code> ค่าคีย์ที่เลือก ·
-            <code>{total}</code> จำนวนรายการ · <code>{date}</code> วันที่
+            <code>{i}</code> ลำดับ · <code>{n}</code> ลำดับเต็ม · <code>{key}</code> ค่าคีย์ที่เลือก · <code>{total}</code> จำนวนรายการ · <code>{date}</code> วันที่
           </div>
           <div id="printPreview" class="sample" style="margin-top:6px">ชื่อไฟล์: —</div>
         </div>
@@ -415,36 +373,134 @@
         <div id="histEmpty" class="muted">ยังไม่มีประวัติ</div>
         <div class="hist" id="histGrid"></div>
       </div>
-    </div>
+    </section>
+  </div>
 
-    <!-- ══ ตั้งค่าการส่งออก ══ -->
-    <div class="card card-export">
-      <div class="title">ตั้งค่าการส่งออก</div>
-      <div class="expbox" style="margin-top:10px">
-        <div class="expopt">
-          <span class="txt"><b>ฝังฟอนต์ลงในไฟล์</b><span>ไฟล์ที่ส่งออกจะเปิดได้ที่เครื่องอื่นโดยไม่ต้องมีฟอนต์ติดตั้งไว้ (ทำให้ไฟล์ใหญ่ขึ้น)</span></span>
-          <label class="switch"><input type="checkbox" id="expEmbedFonts" checked aria-label="ฝังฟอนต์ลงในไฟล์"><span class="track"></span></label>
+  <!-- ══ แถวท้าย: ข้อมูล / ฟอนต์ / ส่งออก ══ -->
+  <div class="company">
+    <div class="card cardfold" id="cardData">
+      <div class="cf-head">
+        <div class="title">นำเข้าข้อมูล <span class="hint">รวมทุกไฟล์เข้างานเดียวกัน</span></div>
+        <span class="spacer"></span><span class="chev">▾</span>
+      </div>
+      <div class="cf-body">
+        <div class="row">
+          <input type="file" id="jsonFile2" accept=".json,application/json" multiple>
+          <button id="btnLoadFileJson" type="button" class="link">เลือกหลายไฟล์</button>
         </div>
-        <div class="expopt">
-          <span class="txt"><b>เตือนเมื่อฟอนต์ยังไม่ถูกฝัง</b><span>ก่อนส่งออก ถ้ายังมีฟอนต์ที่ใช้งานอยู่แต่ไม่ได้ฝัง ระบบจะเตือน</span></span>
-          <label class="switch"><input type="checkbox" id="expWarnFont" checked aria-label="เตือนเมื่อฟอนต์ยังไม่ถูกฝัง"><span class="track"></span></label>
+        <div class="row" style="margin-top:8px">
+          <span id="jsonStatus" class="status muted">ยังไม่ได้โหลดข้อมูล</span>
+          <span class="spacer"></span>
+          <button id="btnClearJson" type="button" class="warn">ล้างข้อมูลทั้งหมด</button>
         </div>
-        <div class="expopt">
-          <span class="txt"><b>ความละเอียดภาพ PNG</b><span>ยิ่งสูงยิ่งคมชัด แต่ไฟล์ใหญ่และช้าลง</span></span>
-          <select id="expPngScale" style="min-width:96px">
-            <option value="1">1× (เร็ว)</option>
-            <option value="2" selected>2× (มาตรฐาน)</option>
-            <option value="3">3× (คมมาก)</option>
-          </select>
+        <div class="row" style="margin-top:10px">
+          <textarea id="pasteJson" placeholder='[{"name":"สมชาย","id":"A001"}]' spellcheck="false"></textarea>
+          <button id="btnPasteLoad2" type="button" class="primary">เพิ่มข้อมูลจากข้อความ</button>
+          <button id="btnPasteLoad" type="button" title="เลือกไฟล์ JSON ไฟล์เดียว">เลือกไฟล์เดียว</button>
+          <input id="jsonFile" type="file" accept=".json,application/json" class="hidden">
         </div>
-        <div id="expNote" class="expnote">กำลังตรวจสภาพ…</div>
       </div>
     </div>
 
-    <div class="card card-status">
-      <div class="title">สถานะ</div>
-      <div id="opStatus" class="status" aria-live="polite"></div>
+    <div class="card cardfold" id="cardFont">
+      <div class="cf-head">
+        <div class="title">ฟอนต์ <span class="hint">ฝังลงไฟล์ที่ส่งออกให้อัตโนมัติ</span></div>
+        <span class="spacer"></span><span class="chev">▾</span>
+      </div>
+      <div class="cf-body">
+        <div class="row"><input type="file" id="fontFile" multiple accept=".ttf,.otf,.ttc,.otc,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2"></div>
+        <div class="row" style="margin-top:8px">
+          <select id="fontDefault"><option value="">ค่าเริ่มต้นเดิม</option></select>
+          <span id="fontStatus" class="status muted">ยังไม่มีฟอนต์ที่แนบ</span>
+          <span class="spacer"></span>
+          <button id="fontClear" type="button" class="warn">ลบฟอนต์ทั้งหมด</button>
+        </div>
+        <div class="list" id="fontList"><div class="muted">ยังไม่มีฟอนต์ที่แนบ</div></div>
+      </div>
     </div>
+
+    <div class="card cardfold" id="cardRecord">
+      <div class="cf-head">
+        <div class="title">ข้อมูลชุดที่กำลังดู</div>
+        <span class="spacer"></span><span class="chev">▾</span>
+      </div>
+      <div class="cf-body"><pre id="recordPreview">ยังไม่มีข้อมูล</pre></div>
+    </div>
+
+    <div class="card cardfold" id="cardExport">
+      <div class="cf-head">
+        <div class="title">ตั้งค่าการส่งออก</div>
+        <span class="spacer"></span><span class="chev">▾</span>
+      </div>
+      <div class="cf-body">
+        <div class="expbox" style="margin-top:8px">
+          <div class="expopt">
+            <span class="txt"><b>ฝังฟอนต์ลงในไฟล์</b><span>เปิดที่เครื่องอื่นได้โดยไม่ต้องมีฟอนต์ติดตั้งไว้ (ไฟล์ใหญ่ขึ้น)</span></span>
+            <label class="switch"><input type="checkbox" id="expEmbedFonts" checked aria-label="ฝังฟอนต์ลงในไฟล์"><span class="track"></span></label>
+          </div>
+          <div class="expopt">
+            <span class="txt"><b>เตือนเมื่อฟอนต์ยังไม่ถูกฝัง</b><span>ก่อนส่งออก ถ้ายังมีฟอนต์ที่ใช้งานอยู่แต่ไม่ได้ฝัง ระบบจะเตือน</span></span>
+            <label class="switch"><input type="checkbox" id="expWarnFont" checked aria-label="เตือนเมื่อฟอนต์ยังไม่ถูกฝัง"><span class="track"></span></label>
+          </div>
+          <div class="expopt">
+            <span class="txt"><b>ความละเอียดภาพ PNG</b><span>ยิ่งสูงยิ่งคมชัด แต่ไฟล์ใหญ่และช้าลง</span></span>
+            <select id="expPngScale" style="min-width:96px">
+              <option value="1">1× (เร็ว)</option>
+              <option value="2" selected>2× (มาตรฐาน)</option>
+              <option value="3">3× (คมมาก)</option>
+            </select>
+          </div>
+          <div id="expNote" class="expnote">กำลังตรวจสภาพ…</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card cardfold" id="cardStatus">
+      <div class="cf-head">
+        <div class="title">สถานะ</div>
+        <span class="spacer"></span><span class="chev">▾</span>
+      </div>
+      <div class="cf-body"><div id="opStatus" class="status" aria-live="polite"></div></div>
+    </div>
+  </div>
+</main>
+
+<!-- ══ bottom sheet: เมนูเพิ่มเติม ══ -->
+<div id="sheetWrap" aria-hidden="true">
+  <div id="sheetBack" class="sheet-back"></div>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="เมนูเพิ่มเติม">
+    <div class="sheet-h"><h3>เมนูเพิ่มเติม</h3>
+      <span class="spacer"></span>
+      <button id="sheetClose" type="button" class="mini">✕ ปิด</button>
+    </div>
+    <div class="sheet-grid">
+      <div class="sitem" data-sheet="bg">🖼 <b>พื้นหลังเอกสาร</b><span>png/jpg/webp/PDF</span></div>
+      <div class="sitem" data-sheet="data">📥 <b>นำเข้าข้อมูล JSON</b><span>เลือกหลายไฟล์</span></div>
+      <div class="sitem" data-sheet="font">🔤 <b>ฟอนต์</b><span>ttf/otf/woff</span></div>
+      <div class="sitem" id="btnExportLayout" data-sheet="none">💾 <b>บันทึกผังงาน</b><span>ไฟล์ .json สำรองงาน</span></div>
+      <div class="sitem" id="btnImportLayout" data-sheet="none">📂 <b>เปิดผังงาน</b><span>จากไฟล์ที่บันทึกไว้</span></div>
+      <div class="sitem" id="btnExportHtml" data-sheet="none">🌐 <b>ไฟล์ HTML → PDF</b><span>เปิดที่เครื่องอื่น มีปุ่มพิมพ์</span></div>
+      <div class="sitem" id="btnExportKeys" data-sheet="none">🏷 <b>ดูรายชื่อ key</b><span>ที่ใช้ในงานนี้</span></div>
+      <div class="sitem" data-sheet="export">⚙️ <b>ตั้งค่าการส่งออก</b><span>ฝังฟอนต์ · ความละเอียด PNG</span></div>
+      <div class="sitem" data-sheet="help">❓ <b>วิธีใช้งาน</b><span>ทีละขั้น</span></div>
+    </div>
+  </div>
+</div>
+
+<div id="sheetHelp" aria-hidden="true">
+  <div class="sheet-back"></div>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="วิธีใช้งาน">
+    <div class="sheet-h"><h3>วิธีใช้งาน 3 ขั้น</h3>
+      <span class="spacer"></span><button id="helpClose" type="button" class="mini">✕ ปิด</button>
+    </div>
+    <ol class="helplist">
+      <li><b>วางพื้น</b> — เมนูเพิ่มเติม → พื้นหลังเอกสาร แนบภาพหรือ PDF (เลือกได้หลายไฟล์ = หลายหน้า)</li>
+      <li><b>ประทับชิ้นงาน</b> — แถบบนกด + ข้อความ / + รูป / + QR / + วันเวลา แล้วลากวาง · ลากจุดกลมมุมเพื่อย่อ/ขยาย · ตั้งผูกกับ key ของข้อมูลที่แผงขวา</li>
+      <li><b>ส่งออก</b> — + นำเข้าข้อมูล JSON (ได้หลายไฟล์) → ปุ่ม PDF ทุกหน้า หรือแท็บ "พิมพ์" เพื่อแยกไฟล์/ตั้งชื่อ/ลำดับ</li>
+    </ol>
+    <p class="muted" style="font-size:var(--t-xs);line-height:1.7;margin-top:8px">
+      งานถูกเซฟอัตโนมัติเป็น draft ตลอด ถ้าออกไปแล้วกลับมา จะมีแถบ "กู้คืน" ขึ้นให้กดเมื่อเปิดใหม่ทันที<br>
+      ชิ้นงาน "วันเวลา" — ไม่ตรึงจะคำนวณใหม่ทุกครั้งที่เปิดไฟล์/พิมพ์ กด “ตรึงค่านี้ไว้” เพื่อล็อกวันที่เดิม</p>
   </div>
 </div>
 
