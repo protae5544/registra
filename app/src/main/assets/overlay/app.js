@@ -612,7 +612,7 @@
       content.appendChild(holder);
       if (typeof QRCode === "function") {
         try {
-          new QRCode(holder, { text: val || "-", width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
+          new QRCode(holder, { text: val || "-", width: 40, height: 40, correctLevel: QRCode.CorrectLevel.M });
         } catch (e) {
           holder.textContent = val;
         }
@@ -2172,7 +2172,7 @@
     box.style.cssText = "position:fixed;left:-99999px;top:0;width:220px;height:220px";
     document.body.appendChild(box);
     try {
-      new QRCode(box, { text: text, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
+      new QRCode(box, { text: text, width: 40, height: 40, correctLevel: QRCode.CorrectLevel.M });
       const cv = box.querySelector("canvas");
       const u = cv && typeof cv.toDataURL === "function" ? cv.toDataURL("image/png") : null;
       return u || null;
