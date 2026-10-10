@@ -4,12 +4,22 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.sp
 import com.chb.form.R
 
-val Sarabun = FontFamily(Font(R.font.sarabun_regular))
+// UI font: Google Sarabun with real weights (no synthetic bold).
+// NOTE: R.font.sarabun_regular (TH Sarabun New) is intentionally left for the PDF renderers.
+val Sarabun = FontFamily(
+    Font(R.font.sarabun_ui_regular, FontWeight.Normal),
+    Font(R.font.sarabun_ui_medium, FontWeight.Medium),
+    Font(R.font.sarabun_ui_semibold, FontWeight.SemiBold),
+    Font(R.font.sarabun_ui_bold, FontWeight.Bold)
+)
 
 // Warm Cream & Pistachio Color Palette
 val CreamBg = Color(0xFFF9F6F0)
@@ -72,23 +82,40 @@ private val DarkColorScheme = darkColorScheme(
     onError = Color(0xFF690005)
 )
 
+// Thai needs taller line boxes than Latin so stacked vowels/tone marks are not clipped.
+private fun TextStyle.thai(
+    size: TextUnit = fontSize,
+    line: TextUnit = lineHeight,
+    weight: FontWeight? = null
+): TextStyle = copy(
+    fontFamily = Sarabun,
+    fontSize = size,
+    lineHeight = line,
+    fontWeight = weight ?: fontWeight
+)
+
 @Composable
 fun ChbTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     val colors = if (darkTheme) DarkColorScheme else LightColorScheme
-    val base = Typography()
+    val b = Typography()
     MaterialTheme(
         colorScheme = colors,
         typography = Typography(
-            headlineMedium = base.headlineMedium.copy(fontFamily = Sarabun, fontWeight = FontWeight.Bold),
-            titleLarge = base.titleLarge.copy(fontFamily = Sarabun, fontWeight = FontWeight.Bold),
-            titleMedium = base.titleMedium.copy(fontFamily = Sarabun, fontWeight = FontWeight.SemiBold),
-            titleSmall = base.titleSmall.copy(fontFamily = Sarabun, fontWeight = FontWeight.SemiBold),
-            bodyLarge = base.bodyLarge.copy(fontFamily = Sarabun),
-            bodyMedium = base.bodyMedium.copy(fontFamily = Sarabun),
-            bodySmall = base.bodySmall.copy(fontFamily = Sarabun),
-            labelLarge = base.labelLarge.copy(fontFamily = Sarabun, fontWeight = FontWeight.SemiBold),
-            labelMedium = base.labelMedium.copy(fontFamily = Sarabun, fontWeight = FontWeight.Medium),
-            labelSmall = base.labelSmall.copy(fontFamily = Sarabun, fontWeight = FontWeight.Medium)
+            displayLarge = b.displayLarge.thai(),
+            displayMedium = b.displayMedium.thai(),
+            displaySmall = b.displaySmall.thai(),
+            headlineLarge = b.headlineLarge.thai(line = 44.sp, weight = FontWeight.Bold),
+            headlineMedium = b.headlineMedium.thai(line = 38.sp, weight = FontWeight.Bold),
+            headlineSmall = b.headlineSmall.thai(line = 34.sp, weight = FontWeight.Bold),
+            titleLarge = b.titleLarge.thai(line = 30.sp, weight = FontWeight.Bold),
+            titleMedium = b.titleMedium.thai(line = 24.sp, weight = FontWeight.SemiBold),
+            titleSmall = b.titleSmall.thai(line = 22.sp, weight = FontWeight.SemiBold),
+            bodyLarge = b.bodyLarge.thai(line = 26.sp),
+            bodyMedium = b.bodyMedium.thai(size = 15.sp, line = 23.sp),
+            bodySmall = b.bodySmall.thai(size = 13.sp, line = 19.sp),
+            labelLarge = b.labelLarge.thai(line = 22.sp, weight = FontWeight.SemiBold),
+            labelMedium = b.labelMedium.thai(size = 13.sp, line = 18.sp, weight = FontWeight.Medium),
+            labelSmall = b.labelSmall.thai(size = 12.sp, line = 17.sp, weight = FontWeight.Medium)
         ),
         content = content
     )
