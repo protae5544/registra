@@ -37,6 +37,10 @@ jobs:
               webView.setBackgroundColor(Color.parseColor("#FAF7EE")) // พื้นหลัง WebView ให้ตรงกับธีม --bg' "$FILE"
           fi
 
+      # รัน unit test ก่อน เพื่อให้ CI ล้มเหลวถ้า logic ของ workspace ผิด
+      - name: Run debug unit tests
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
+
       # สร้าง debug APK อย่างเดียว (ไม่รัน lint / R8 ของ release ที่ไม่จำเป็นสำหรับการติดตั้งใช้งาน)
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
