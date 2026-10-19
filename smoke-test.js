@@ -549,7 +549,7 @@ async function run() {
   click(document.querySelector('[data-add="stamp"]'));
   await new Promise((r) => setTimeout(r, 20));
   const stampText = () => (document.querySelector('.obj[data-type="stamp"] .stampval') || {}).textContent || "";
-  check("+Stamp เพิ่ม element ชนิด stamp", document.querySelectorAll('.obj[data-type="stamp"]').length === 1);
+  check("+Stamp เพิ่ม element ชนิด stamp", document.querySelectorAll('.page.active .obj[data-type="stamp"]').length === 1);
   check("แผงตั้งค่า stamp แสดงเฉพาะตอนเลือก object ชนิด stamp", $("stampbox").style.display === "block");
   check("stamp แสดงวันที่+เวลาปัจจุบัน", /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/.test(stampText()));
   const setStamp = async (id, v) => {
@@ -832,6 +832,129 @@ async function run() {
     delete window.ChbAndroid;
     window.jspdf = prevJspdf;
   }
+
+  // 41) stamp: รูปแบบแก้ไขเองได้ + อยู่บนทุกหน้า + ปรับตำแหน่งแล้วทุกสำเนาตรงกัน
+  click(document.querySelector('[data-add="stamp"]'));
+  await waitFor(() => document.querySelector(".obj.sel [class=stampval], .obj.sel .stampval") != null);
+  const allPageStamp = document.querySelector(".obj.sel");
+  const allPageId = allPageStamp.dataset.id;
+  const pageCount = document.querySelectorAll(".page").length;
+  check("stamp ใหม่มีค่าเริ่มต้นแสดงบนทุกหน้า",
+    document.querySelectorAll('.obj[data-id="' + allPageId + '"]').length === pageCount
+    && $("edStampAllPages").checked === true);
+  await setStamp("edStampPart", "date");
+  await setStamp("edStampMode", "base");
+  await setStamp("edStampBase", "2024-01-31");
+  await setStamp("edStampShift", "0");
+  await setStamp("edStampFormat", "D MMMM BBBB");
+  const formatAll = () => Array.from(document.querySelectorAll('.obj[data-id="' + allPageId + '"] .stampval')).map((e) => e.textContent);
+  check("แก้รูปแบบวันเวลาเองได้ (ชื่อเดือนไทย + พ.ศ.) และทุกหน้าตรงกัน",
+    formatAll().length === pageCount && formatAll().every((t) => t === "31 มกราคม 2567"));
+  await setStamp("edStampFormat", "[วันที่] D MMMM BBBB เวลา HH:mm");
+  check("ข้อความในวงเล็บเหลี่ยมถูกเก็บไว้เป็นข้อความคงที่",
+    formatAll().every((t) => t === "วันที่ 31 มกราคม 2567 เวลา 00:00"));
+  await setStamp("edStampFormat", "");
+  check("ล้างรูปแบบเองแล้วกลับไปใช้ตัวเลือกด้านบน", formatAll().every((t) => t === "31/01/2024"));
+  await setStamp("edStampFormat", "[วันที่] D MMMM BBBB");
+  $("edX").value = "42.5";
+  $("edX").dispatchEvent(new window.Event("input", { bubbles: true }));
+  $("edY").value = "13.5";
+  $("edY").dispatchEvent(new window.Event("input", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  const clones41 = Array.from(document.querySelectorAll('.obj[data-id="' + allPageId + '"]'));
+  check("ปรับตำแหน่ง stamp ด้วยตัวเลขแล้วทุกหน้าขยับตาม",
+    clones41.length === pageCount && clones41.every((e) => e.style.left === "42.5%" && e.style.top === "13.5%"));
+  $("edStampAllPages").checked = false;
+  $("edStampAllPages").dispatchEvent(new window.Event("change", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  check("ปิด “ทุกหน้า” แล้วเหลือเฉพาะหน้าที่วาง", document.querySelectorAll('.obj[data-id="' + allPageId + '"]').length === 1);
+  $("edStampAllPages").checked = true;
+  $("edStampAllPages").dispatchEvent(new window.Event("change", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  check("เปิด “ทุกหน้า” อีกครั้งแล้วกลับมาครบทุกหน้า", document.querySelectorAll('.obj[data-id="' + allPageId + '"]').length === pageCount);
+
+  let saved41 = [];
+  saveAs(saved41);
+  click($("btnExportHtml"));
+  await waitFor(() => saved41.length === 1, 4000);
+  const html41 = saved41[0] ? Buffer.from(saved41[0].b64, "base64").toString("utf8") : "";
+  const D41 = payloadOf(html41);
+  const expStamp = D41.pageObjs.flat().find((o) => o.id === allPageId);
+  check("ไฟล์ export เก็บรูปแบบเองของ stamp", !!expStamp && expStamp.sm && expStamp.sm.format === "[วันที่] D MMMM BBBB");
+  check("ไฟล์ export มี stamp ทุกหน้า", D41.pageObjs.filter((objs) => objs.some((o) => o.id === allPageId)).length === pageCount);
+  const dom41 = new JSDOM(html41, { runScripts: "dangerously", url: "http://localhost/" });
+  const d41 = dom41.window.document;
+  await waitFor(() => d41.querySelectorAll(".o .stampval").length > 0, 3000);
+  const customInExport = Array.from(d41.querySelectorAll(".o .stampval")).filter((e) => e.textContent === "วันที่ 31 มกราคม 2567");
+  check("ไฟล์ export เรนเดอร์รูปแบบเองตรงกับพรีวิวทุกหน้า", customInExport.length === pageCount * Math.max(1, D41.recs.length));
+  dropBridge();
+
+  // 42) ฟิลด์ภาพ: รับ URL/พาธจากข้อมูล + ป้ายกำกับ (ไม่ใช่การ import รูปเข้าเทมเพลต)
+  click(document.querySelector('[data-add="image"]'));
+  await waitFor(() => document.querySelector('.obj[data-type="image"]') != null);
+  const imageEl = document.querySelector(".obj.sel");
+  check("เพิ่มฟิลด์ภาพแล้วได้ object ชนิด image และไม่มี input import รูป",
+    !!imageEl && imageEl.dataset.type === "image" && $("objImageFile") === null);
+  check("ฟิลด์ภาพแสดงกลุ่มรับภาพ (ไม่ใช่กลุ่มข้อความ)",
+    $("grpImage").style.display !== "none" && $("grpText").style.display === "none");
+  $("edKey").value = "photo";
+  $("edKey").dispatchEvent(new window.Event("change", { bubbles: true }));
+  $("edImageLabel").value = "รูปถ่าย";
+  $("edImageLabel").dispatchEvent(new window.Event("change", { bubbles: true }));
+  click($("fillAdd"));
+  await new Promise((r) => setTimeout(r, 30));
+  const photoInput = Array.from(document.querySelectorAll("#fillList input")).find((i) => i.placeholder === "URL หรือพาธภาพ");
+  check("แท็บกรอกข้อมูลมีช่อง URL/พาธสำหรับฟิลด์ภาพ", !!photoInput);
+  check("ช่องกรอกใช้ป้ายกำกับของฟิลด์", !!photoInput && photoInput.closest(".item").querySelector("b").textContent === "รูปถ่าย");
+  photoInput.value = "https://example.com/logo.png";
+  photoInput.dispatchEvent(new window.Event("input", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  const imgUrl = document.querySelector('.obj[data-type="image"] .content img');
+  check("ฟิลด์ภาพแสดง URL จากข้อมูลจริง", !!imgUrl && imgUrl.getAttribute("src") === "https://example.com/logo.png");
+  check("ฟิลด์ภาพมีป้ายกำกับใต้ภาพ",
+    document.querySelector('.obj[data-type="image"] .content .obj-cap')?.textContent === "รูปถ่าย");
+  photoInput.value = "/storage/emulated/0/Pictures/logo.png";
+  photoInput.dispatchEvent(new window.Event("input", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  const imgPath = document.querySelector('.obj[data-type="image"] .content img');
+  check("พาธในเครื่องถูกแปลงเป็น file:/// ให้ WebView เปิดได้",
+    !!imgPath && imgPath.getAttribute("src") === "file:///storage/emulated/0/Pictures/logo.png");
+  photoInput.value = "storage/emulated/0/Pictures/logo.png";
+  photoInput.dispatchEvent(new window.Event("input", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  check("พาธแบบไม่มี / นำหน้า (storage/…) ก็เปิดได้",
+    document.querySelector('.obj[data-type="image"] .content img')?.getAttribute("src") === "file:///storage/emulated/0/Pictures/logo.png");
+  $("edImageFit").value = "cover";
+  $("edImageFit").dispatchEvent(new window.Event("change", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 20));
+  check("เลือกวิธีแสดงภาพ (cover) มีผลกับภาพจริง",
+    document.querySelector('.obj[data-type="image"] .content img')?.className === "fit-cover");
+
+  click(document.querySelector('[data-add="qr"]'));
+  await waitFor(() => document.querySelector('.obj[data-type="qr"]') != null);
+  $("edQrLabel").value = "ลิงก์ตรวจสอบ";
+  $("edQrLabel").dispatchEvent(new window.Event("change", { bubbles: true }));
+  check("QR มีป้ายกำกับแบบเดียวกับฟิลด์ภาพ",
+    document.querySelector('.obj.sel[data-type="qr"] .obj-cap')?.textContent === "ลิงก์ตรวจสอบ");
+
+  const photoInput2 = Array.from(document.querySelectorAll("#fillList input")).find((i) => i.placeholder === "URL หรือพาธภาพ");
+  photoInput2.value = "https://example.com/logo.png";
+  photoInput2.dispatchEvent(new window.Event("input", { bubbles: true }));
+  let saved42 = [];
+  saveAs(saved42);
+  click($("btnExportHtml"));
+  await waitFor(() => saved42.length === 1, 4000);
+  const html42 = saved42[0] ? Buffer.from(saved42[0].b64, "base64").toString("utf8") : "";
+  const D42 = payloadOf(html42);
+  const expImg = D42.pageObjs.flat().find((o) => o.t === "image" && o.k === "photo");
+  check("ไฟล์ export เก็บค่าภาพจากข้อมูลและป้ายกำกับ", !!expImg && expImg.lb === "รูปถ่าย"
+    && Object.values(D42.iv || {}).includes("https://example.com/logo.png"));
+  const dom42 = new JSDOM(html42, { runScripts: "dangerously", url: "http://localhost/" });
+  const d42 = dom42.window.document;
+  await waitFor(() => d42.querySelectorAll(".o").length > 0, 3000);
+  check("ไฟล์ export เรนเดอร์ภาพจาก URL จริง",
+    Array.from(d42.querySelectorAll(".o img")).some((im) => im.getAttribute("src") === "https://example.com/logo.png"));
+  dropBridge();
 
   console.log("\n==== RESULT: " + pass + " passed, " + fail + " failed ====");
   process.exit(fail ? 1 : 0);

@@ -47,7 +47,6 @@
     exp: { embed: true, warnFont: true, pngScale: 3, pdfScale: 4 }
   };
   let history = []; // {name, time, thumb, dataUrl}
-  let pendingImageAdd = null; // callback สำหรับเลือกรูปเพิ่มเป็น object
 
   /* ---------------- toast / status / loader ---------------- */
   let toastTimer = null;
@@ -139,6 +138,47 @@
     state.records.forEach((r) => Object.keys(r || {}).forEach((k) => { if (set.indexOf(k) < 0) set.push(k); }));
     return set;
   }
+  // ชิ้นงานที่ต้องแสดงบนหน้านี้: ชิ้นงานของหน้าเอง + ชิ้นงานที่ติ้ก "ทุกหน้า" จากหน้าอื่น
+  // owner = หน้าที่เก็บ object จริง (ใช้เลือก/ลบ/บันทึก) — ตำแหน่งเป็น % ของหน้าเดียวกัน
+  function objectsOnPage(pageIdx) {
+    const out = [];
+    state.pages.forEach((p, pi) => {
+      p.objects.forEach((o) => {
+        if (pi === pageIdx || o.allPages) out.push({ o: o, owner: pi });
+      });
+    });
+    return out.sort((a, b) => (a.o.z || 1) - (b.o.z || 1));
+  }
+  function shortSrc(src) {
+    const s = String(src || "");
+    return s.length > 46 ? s.slice(0, 20) + "…" + s.slice(-22) : s;
+  }
+  // ฟิลด์ภาพรับค่าเป็น URL / พาธ — แปลงพาธในเครื่องให้เป็น URL ที่ WebView เปิดได้
+  function normalizeImageSrc(raw) {
+    let s = String(raw == null ? "" : raw).trim();
+    if (!s) return "";
+    if (/^(data:|blob:|https?:|file:|content:)/i.test(s)) return s.replace(/ /g, "%20");
+    if (/^[A-Za-z]:[\\/]/.test(s)) return "file:///" + s.replace(/\\/g, "/").replace(/ /g, "%20");
+    if (/^(storage|sdcard|mnt)\//i.test(s)) return "file:///" + s.replace(/ /g, "%20");
+    if (s.charAt(0) === "/") return "file://" + s.replace(/ /g, "%20");
+    try { return new URL(s, document.baseURI).href; } catch (e) { return s; }
+  }
+  function mediaCaption(o) {
+    const text = o && o.label != null ? String(o.label).trim() : "";
+    if (!text) return null;
+    const cap = document.createElement("span");
+    cap.className = "obj-cap";
+    cap.textContent = text;
+    return cap;
+  }
+  // ชนิด/ป้ายกำกับของ key — ใช้บอกในแท็บกรอกข้อมูลว่าช่องนี้รับภาพหรือข้อความ
+  function fieldInfoForKey(k) {
+    let info = null;
+    state.pages.forEach((p) => p.objects.forEach((o) => {
+      if (!info && o.key === k) info = { type: o.type, label: o.label != null ? String(o.label).trim() : "" };
+    }));
+    return info || { type: "", label: "" };
+  }
 
   /* ---------------- stamp: element ตายตัวในเทมเพลต แต่คำนวณเป็นเวลาปัจจุบัน ----------------
      ผู้ใช้เลือกได้ว่าจะแสดง date / time / date+time / เดือน+ปี และเลื่อนได้ -12..+12 เดือน
@@ -152,6 +192,8 @@
       mode: o.stampMode === "base" ? "base" : "now",
       base: typeof o.stampBase === "string" ? o.stampBase.trim() : "",
       shift: isNaN(sh) ? 0 : clamp(sh, -12, 12),
+      format: typeof o.stampFormat === "string" ? o.stampFormat.trim() : "",
+      allPages: !!o.allPages,
       frozen: !!o.stampFrozen,
       frozenText: typeof o.stampFrozenText === "string" ? o.stampFrozenText : "",
       frozenAt: isNaN(parseInt(o.stampFrozenAt, 10)) ? 0 : parseInt(o.stampFrozenAt, 10)
@@ -177,12 +219,55 @@
     if (c.shift) d = addMonths(d, c.shift);
     return d;
   }
+  /* รูปแบบอิสระของวันเวลา — ผู้ใช้พิมพ์เองได้ เช่น "D MMMM BBBB เวลา HH:mm"
+     โทเคน: YYYY/YY (ค.ศ.), BBBB/BB (พ.ศ.), MMMM/MMM (ชื่อเดือน), MM/M,
+     DD/D, dddd/ddd (ชื่อวัน), HH/H (24 ชม.), hh/h (12 ชม.), mm/m, ss/s, A (AM/PM)
+     ข้อความใน [...] จะถูกเก็บไว้ตามเดิม เช่น [วันที่] DD/MM/YYYY */
+  const THAI_MONTHS = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+  const THAI_MONTHS_SHORT = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+  const THAI_DAYS = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"];
+  const THAI_DAYS_SHORT = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
+  function stampFormatText(d, fmt) {
+    if (!d || !fmt) return "";
+    const y = d.getFullYear(), b = y + 543;
+    const H = d.getHours(), h12 = H % 12 || 12;
+    const map = {
+      YYYY: String(y), YY: pad2(y % 100),
+      BBBB: String(b), BB: pad2(b % 100),
+      MMMM: THAI_MONTHS[d.getMonth()], MMM: THAI_MONTHS_SHORT[d.getMonth()],
+      MM: pad2(d.getMonth() + 1), M: String(d.getMonth() + 1),
+      DD: pad2(d.getDate()), D: String(d.getDate()),
+      dddd: THAI_DAYS[d.getDay()], ddd: THAI_DAYS_SHORT[d.getDay()],
+      HH: pad2(H), H: String(H), hh: pad2(h12), h: String(h12),
+      mm: pad2(d.getMinutes()), m: String(d.getMinutes()),
+      ss: pad2(d.getSeconds()), s: String(d.getSeconds()),
+      A: H < 12 ? "AM" : "PM"
+    };
+    const tokens = ["YYYY", "BBBB", "MMMM", "dddd", "MMM", "ddd", "YY", "BB", "MM", "DD", "HH", "hh", "mm", "ss", "M", "D", "H", "h", "m", "s", "A"];
+    const src = String(fmt);
+    let out = "", i = 0;
+    while (i < src.length) {
+      if (src.charAt(i) === "[") {
+        const end = src.indexOf("]", i + 1);
+        if (end > i) { out += src.slice(i + 1, end); i = end + 1; continue; }
+      }
+      let hit = "";
+      for (let k = 0; k < tokens.length; k++) {
+        if (src.substr(i, tokens[k].length) === tokens[k]) { hit = tokens[k]; break; }
+      }
+      if (hit) { out += map[hit] != null ? map[hit] : hit; i += hit.length; }
+      else { out += src.charAt(i); i++; }
+    }
+    return out;
+  }
   // ค่าที่ "ตรึงไว้" คือค่าคงที่ที่ถูกจับไว้ตอนกดตรึง — ไม่คำนวณใหม่ทุกครั้งที่เปิด/พิมพ์
   // (ไม่ตรึง = อันตรายกับเอกสารย้อนหลัง ค่าจะเดินไปเงียบ ๆ)
   function stampText(o, now) {
     const c = stampCfg(o);
     if (c.frozen && c.frozenText) return c.frozenText;
     const d = stampWhen(o, now);
+    const custom = stampFormatText(d, c.format);
+    if (custom) return custom;
     const date = pad2(d.getDate()) + "/" + pad2(d.getMonth() + 1) + "/" + d.getFullYear();
     const time = pad2(d.getHours()) + ":" + pad2(d.getMinutes());
     if (c.part === "date") return date;
@@ -614,12 +699,13 @@
 
       const layer = document.createElement("div");
       layer.className = "objLayer";
-      pg.objects.forEach((o) => layer.appendChild(buildObj(o, idx, rec)));
+      const items = objectsOnPage(idx);
+      items.forEach((it) => layer.appendChild(buildObj(it.o, it.owner, idx, rec)));
       pageEl.appendChild(layer);
 
       // คำใบ้เริ่มต้นบนหน้าว่าง — ชี้ว่าเริ่มสร้างฟอร์มอย่างไร
       // หายไปเองทันทีที่มีพื้นหลังหรือชิ้นงานแรก (ไม่ต้องกดปิด)
-      if (!pg.bg && !pg.objects.length && !state.viewAll && idx === state.pageIdx) {
+      if (!pg.bg && !items.length && !state.viewAll && idx === state.pageIdx) {
         const hint = document.createElement("div");
         hint.className = "start-hint";
         const h1 = document.createElement("b");
@@ -640,11 +726,12 @@
     renderStrip();
   }
 
-  function buildObj(o, pageIdx, rec) {
+  function buildObj(o, ownerPage, renderPage, rec) {
     const el = document.createElement("div");
-    el.className = "obj" + (state.sel && state.sel.id === o.id && state.sel.page === pageIdx ? " sel" : "") + (o.locked ? " locked" : "");
+    el.className = "obj" + (state.sel && state.sel.id === o.id && state.sel.page === ownerPage ? " sel" : "") + (o.locked ? " locked" : "");
     el.dataset.id = o.id;
     el.dataset.type = o.type;
+    el.dataset.ownerPage = String(ownerPage);
     el.dataset.align = o.align || "left";
     el.style.cssText = objBoxCss(o);
 
@@ -653,13 +740,13 @@
     // ลบออกก่อน html2canvas เพื่อให้ raster ไม่มีตัวอักษรที่จะแย่งความคม
     if (o.type === "text" || o.type === "stamp") content.classList.add("vec-text");
     content.className += " content";
-    content.style.cssText = objContentCss(o, pageScale(pageIdx));
+    content.style.cssText = objContentCss(o, pageScale(renderPage));
     fillContent(content, o, rec);
     el.appendChild(content);
 
     const lab = document.createElement("span");
     lab.className = "obj-label";
-    lab.textContent = (o.key || "") + (o.type ? " [" + o.type + "]" : "");
+    lab.textContent = (o.key || "") + (o.allPages ? " · ทุกหน้า" : "") + (o.type ? " [" + o.type + "]" : "");
     el.appendChild(lab);
 
     ["nw", "ne", "sw", "se"].forEach((h) => {
@@ -675,24 +762,46 @@
     content.innerHTML = "";
     content.style.color = o.color || "#111";
     if (o.type === "image") {
-      if (o.src) {
+      // ฟิลด์ภาพ = ช่องรับค่าภาพจากข้อมูล (URL / พาธ) ไม่ใช่การนำเข้าไฟล์เข้าเทมเพลต
+      const raw = (o.key && rec && rec[o.key] != null ? String(rec[o.key]) : "") || o.src || "";
+      const src = normalizeImageSrc(raw);
+      const wrap = document.createElement("div");
+      wrap.className = "imgwrap";
+      if (src) {
         const img = document.createElement("img");
-        img.src = o.src;
         img.className = "fit-" + (o.fit || "contain");
-        content.appendChild(img);
+        img.alt = o.label || o.key || "";
+        img.src = src;
+        img.addEventListener("error", () => {
+          wrap.innerHTML = "";
+          const s = document.createElement("span");
+          s.className = "ph";
+          s.textContent = "เปิดภาพไม่ได้ — " + shortSrc(src);
+          wrap.appendChild(s);
+        });
+        wrap.appendChild(img);
       } else {
         const s = document.createElement("span");
         s.className = "ph";
-        s.textContent = "ยังไม่ได้เลือกรูป";
-        content.appendChild(s);
+        s.textContent = o.key ? "ยังไม่มีภาพ · " + o.key : "ตั้ง Key เพื่อรับ URL/พาธภาพ";
+        wrap.appendChild(s);
       }
+      const media = document.createElement("div");
+      media.className = "mediawrap";
+      media.appendChild(wrap);
+      const cap = mediaCaption(o);
+      if (cap) media.appendChild(cap);
+      content.appendChild(media);
       return;
     }
     if (o.type === "qr") {
       const val = objValue(o, rec) || placeholderFor(o);
       const holder = document.createElement("div");
-      holder.style.cssText = "width:100%;height:100%;display:flex;align-items:center;justify-content:center";
-      content.appendChild(holder);
+      holder.className = "qrwrap";
+      holder.style.cssText = "flex:1 1 auto;min-height:0;width:100%;display:flex;align-items:center;justify-content:center";
+      const qmedia = document.createElement("div");
+      qmedia.className = "mediawrap";
+      qmedia.appendChild(holder);
       if (typeof QRCode === "function") {
         try {
           new QRCode(holder, { text: val || "-", width: 40, height: 40, correctLevel: QRCode.CorrectLevel.M });
@@ -702,6 +811,9 @@
       } else {
         holder.textContent = val;
       }
+      const cap = mediaCaption(o);
+      if (cap) qmedia.appendChild(cap);
+      content.appendChild(qmedia);
       return;
     }
     // stamp — ค่าตายตัวในเทมเพลต แต่แสดงเป็นเวลาปัจจุบันเสมอ
@@ -729,7 +841,9 @@
       const pg = state.pages[idx];
       if (!pg) return;
       pageEl.querySelectorAll(".obj").forEach((el) => {
-        const o = pg.objects.find((x) => x.id === el.dataset.id);
+        const owner = el.dataset.ownerPage != null ? +el.dataset.ownerPage : idx;
+        const op = state.pages[owner];
+        const o = op && op.objects.find((x) => x.id === el.dataset.id);
         if (!o) return;
         const c = el.querySelector(".content");
         if (c) c.style.cssText = objContentCss(o, k);
@@ -741,8 +855,10 @@
   function updateSelDom() {
     document.querySelectorAll(".obj.sel").forEach((el) => el.classList.remove("sel"));
     if (state.sel) {
-      const el = document.querySelector('.page[data-idx="' + state.sel.page + '"] .obj[data-id="' + state.sel.id + '"]');
-      if (el) el.classList.add("sel");
+      // ชิ้นงาน "ทุกหน้า" มีหลาย DOM — ต้องไฮไลต์ทุกสำเนาที่มาจาก object เดียวกัน
+      document.querySelectorAll('.obj[data-id="' + state.sel.id + '"]').forEach((el) => {
+        if (+el.dataset.ownerPage === state.sel.page) el.classList.add("sel");
+      });
     }
     document.querySelectorAll(".page").forEach((el) => el.classList.remove("active"));
     if (!state.viewAll) {
@@ -768,6 +884,8 @@
     $("edAlign").value = o.align || "left";
     $("edColor").value = o.color || "#111111";
     $("edImageFit").value = o.fit || "contain";
+    $("edImageLabel").value = o.label || "";
+    $("edQrLabel").value = o.label || "";
     $("edFontSize").value = o.fs || 16;
     $("edLineHeight").value = o.lh || 1.05;
     $("edRotation").value = o.rot || 0;
@@ -791,15 +909,18 @@
     box.style.display = on ? "block" : "none";
     // ซ่อนกลุ่มที่ใช้ไม่ได้กับชนิดนี้ เพื่อไม่ให้ผู้ใช้ตั้งค่าแล้วไม่มีผล
     const isText = !o || o.type === "text" || o.type === "stamp";
-    const gText = $("grpText"), gImg = $("grpImage");
+    const gText = $("grpText"), gImg = $("grpImage"), gQr = $("grpQr");
     if (gText) gText.style.display = isText ? "" : "none";
     if (gImg) gImg.style.display = o && o.type === "image" ? "" : "none";
+    if (gQr) gQr.style.display = o && o.type === "qr" ? "" : "none";
     if (!on) return;
     const c = stampCfg(o);
     $("edStampPart").value = c.part;
     $("edStampMode").value = c.mode;
     $("edStampBase").value = c.base;
     $("edStampShift").value = c.shift;
+    $("edStampFormat").value = c.format;
+    $("edStampAllPages").checked = c.allPages;
     $("edStampBase").disabled = c.mode !== "base";
     const pv = $("stampPreview");
     if (pv) pv.textContent = stampText(o);
@@ -899,7 +1020,7 @@
 
         const chip = document.createElement("span");
         chip.className = "chip " + o.type;
-        chip.textContent = o.type + " · หน้า " + (pi + 1);
+        chip.textContent = o.type + " · " + (o.allPages ? "ทุกหน้า" : "หน้า " + (pi + 1));
 
         const acts = document.createElement("div");
         acts.style.cssText = "display:flex;gap:4px";
@@ -924,7 +1045,12 @@
 
         const sample = document.createElement("div");
         sample.className = "sample";
-        sample.textContent = "ข้อความ: " + (o.text || "-") + " · ตำแหน่ง: " + round(o.x, 1) + "%, " + round(o.y, 1) + "%"
+        const headText = o.type === "image"
+          ? "ภาพ: รับจาก Key “" + (o.key || "—") + "” (URL/พาธ)" + (o.label ? " · ป้าย " + o.label : "")
+          : o.type === "qr"
+            ? "QR: " + (o.key ? "Key “" + o.key + "”" : "ใช้ข้อความ " + (o.text || "-")) + (o.label ? " · ป้าย " + o.label : "")
+            : "ข้อความ: " + (o.text || "-");
+        sample.textContent = headText + " · ตำแหน่ง: " + round(o.x, 1) + "%, " + round(o.y, 1) + "%"
           + " · " + (familyOf(o) || "ฟอนต์ปกติ") + (o.bold ? " · ตัวหนา" : "") + " · " + (o.fs || 16) + "px";
         row.appendChild(sample);
 
@@ -953,25 +1079,27 @@
       row.className = "item";
       const head = document.createElement("div");
       head.className = "itemhead";
+      const info = fieldInfoForKey(k);
       const lab = document.createElement("b");
-      lab.textContent = k;
+      lab.textContent = info.label || k;
       lab.style.cssText = "font-size:13px;overflow:hidden;text-overflow:ellipsis";
       const inp = document.createElement("input");
       inp.type = "text";
       inp.value = rec && rec[k] != null ? rec[k] : "";
-      inp.placeholder = "ค่าว่าง";
+      inp.placeholder = info.type === "image" ? "URL หรือพาธภาพ" : (info.type === "qr" ? "ข้อความ/ลิงก์สำหรับ QR" : "ค่าว่าง");
+      inp.title = info.type === "image" ? "ใส่ URL, file:///… หรือพาธภาพในเครื่อง" : "";
       inp.addEventListener("input", () => {
         if (!state.records.length) return;
         state.records[state.recIdx][k] = inp.value;
         renderCounters();
-        // Update canvas object text directly without destroying full page DOM
+        // Update canvas objects directly without destroying full page DOM
         const rec = state.records[state.recIdx];
+        const items = objectsOnPage(state.pageIdx);
         document.querySelectorAll(".page.active .obj").forEach((el) => {
-          const oid = el.dataset.id;
-          const o = (curPage() && curPage().objects || []).find((x) => x.id === oid);
-          if (o && (o.key === k || o.type === "stamp")) {
+          const it = items.find((x) => x.o.id === el.dataset.id);
+          if (it && (it.o.key === k || it.o.type === "stamp")) {
             const cnt = el.querySelector(".content");
-            if (cnt) fillContent(cnt, o, rec);
+            if (cnt) fillContent(cnt, it.o, rec);
           }
         });
         saveDraftSoon();
@@ -1079,17 +1207,19 @@
     if (state.cross) { crossPointerDown(e, pageEl); return; }
     const objEl = e.target.closest(".obj");
     if (!objEl) { select(-1, null); return; }
-    const idx = +pageEl.dataset.idx;
-    const o = getObj(idx, objEl.dataset.id);
+    const renderIdx = +pageEl.dataset.idx;
+    const owner = objEl.dataset.ownerPage != null ? +objEl.dataset.ownerPage : renderIdx;
+    const o = getObj(owner, objEl.dataset.id);
     if (!o) return;
-    select(idx, o.id);
+    if (renderIdx !== state.pageIdx) state.pageIdx = renderIdx;
+    select(owner, o.id);
     if (o.locked) { toast("object นี้ล็อกไว้ — ปลดล็อกก่อนขยับ"); return; }
 
     const handleEl = e.target.closest(".h");
     drag = {
       mode: handleEl ? "resize" : "move",
       handle: handleEl ? handleEl.dataset.h : null,
-      page: idx, id: o.id, pageEl: pageEl,
+      page: owner, renderPage: renderIdx, id: o.id, pageEl: pageEl,
       sx: e.clientX, sy: e.clientY,
       ox: o.x, oy: o.y, ow: o.w, oh: o.h,
       ratio: o.h / (o.w || 1),
@@ -1221,20 +1351,25 @@
       }
       return;
     }
-    const el = document.querySelector('.obj[data-id="' + drag.id + '"]');
-    if (el) el.classList.remove("dragging");
+    document.querySelectorAll('.obj[data-id="' + drag.id + '"]').forEach((el) => el.classList.remove("dragging"));
     drawGuides(null);
     if (drag.moved) { fitFonts(); saveDraftSoon(); status("เลื่อน/ปรับขนาดแล้ว (auto-save)", "ok"); }
     drag = null;
   }
 
   function applyObjDom(o) {
-    if (!state.sel) return;
-    const el = document.querySelector('.page[data-idx="' + state.sel.page + '"] .obj[data-id="' + o.id + '"]');
-    if (!el) return;
-    el.style.cssText = objBoxCss(o);
-    const c = el.querySelector(".content");
-    if (c) c.style.cssText = objContentCss(o, pageScale(state.sel.page));
+    if (!o) return;
+    // ชิ้นงาน "ทุกหน้า" มีได้หลายสำเนา — อัปเดตทุกสำเนาพร้อมกันเพื่อให้ preview ตรงกัน
+    document.querySelectorAll('.obj[data-id="' + o.id + '"]').forEach((el) => {
+      const pageEl = el.closest(".page");
+      const pageIdx = pageEl ? +pageEl.dataset.idx : state.pageIdx;
+      const owner = el.dataset.ownerPage != null ? +el.dataset.ownerPage : pageIdx;
+      const op = state.pages[owner];
+      if (!op || op.objects.indexOf(o) < 0) return;
+      el.style.cssText = objBoxCss(o);
+      const c = el.querySelector(".content");
+      if (c) c.style.cssText = objContentCss(o, pageScale(pageIdx));
+    });
   }
 
   function syncEditorPos() {
@@ -1411,16 +1546,17 @@
       id: uid(), type: type, key: "", text: "",
       x: 15, y: 10, w: 40, h: 6, rot: 0, fs: 16, lh: 1.05, ls: 0,
       align: "left", valign: "middle", color: "#111111", fit: "contain",
-      family: "", bold: false, italic: false,
+      family: "", bold: false, italic: false, label: "",
       lockAspect: false, locked: false, z: z, src: ""
     };
-    if (type === "image") { base.w = 25; base.h = 25; base.y = 35; }
+    if (type === "image") { base.w = 25; base.h = 25; base.y = 35; base.key = "image"; }
     if (type === "qr") { base.w = 16; base.h = 16; base.y = 60; base.text = "https://example.com"; base.lockAspect = true; base.key = "qr"; }
     if (type === "text") { base.text = "ข้อความ"; }
     if (type === "stamp") {
       base.w = 34; base.h = 5; base.y = 88; base.x = 12;
       base.align = "left";
       base.stampPart = "datetime"; base.stampMode = "now"; base.stampBase = ""; base.stampShift = 0;
+      base.stampFormat = ""; base.allPages = true;
       base.stampFrozen = false; base.stampFrozenText = ""; base.stampFrozenAt = 0;
     }
     Object.assign(base, extra || {});
@@ -1461,6 +1597,7 @@
   function copyToTargetPage(targetIdx) {
     const o = selected();
     if (!o) { toast("เลือกชิ้นงานก่อน", "err"); return; }
+    if (o.allPages) { toast("ชิ้นงานนี้แสดงบนทุกหน้าอยู่แล้ว — ไม่ต้องก๊อป", "warn"); return; }
     if (targetIdx == null || targetIdx === srcPageOf()) return;
     const copied = copyObjToPage(o, targetIdx);
     if (!copied) { toast("ข้ามได้เพราะหน้าปลายทางมีฟิลด์ Key “" + (o.key || "—") + "” อยู่แล้ว", "warn"); return; }
@@ -1472,6 +1609,7 @@
   function copyToAllPages() {
     const o = selected();
     if (!o) { toast("เลือกชิ้นงานก่อน", "err"); return; }
+    if (o.allPages) { toast("ชิ้นงานนี้แสดงบนทุกหน้าอยู่แล้ว", "warn"); return; }
     let done = 0, skipped = 0;
     const src = srcPageOf();
     state.pages.forEach((_, i) => {
@@ -2252,7 +2390,7 @@
     const pg = state.pages[pageIdx];
     if (!pg) return [];
     const rec = rec_ !== void 0 ? rec_ : curRecord();
-    return pg.objects.filter((o) => o.type === "text" || o.type === "stamp").map((o) => {
+    return objectsOnPage(pageIdx).map((it) => it.o).filter((o) => o.type === "text" || o.type === "stamp").map((o) => {
       // ตำแหน่ง % ของหน้า → หน่วย pt ของ A4 (595.28×841.89pt)
       const wPt = 595.28, hPt = 841.89;
       const value = o.type === "stamp" ? stampText(o) : (objValue(o, rec) || placeholderFor(o));
@@ -2418,22 +2556,29 @@
     const bgs = state.pages.map((p) => (p.bg && p.bg.src ? p.bg.src : null));
     const ars = state.pages.map((p) => (p.bg ? p.bg.w / p.bg.h : A4.w / A4.h));
     // ใช้ฟังก์ชัน CSS ชุดเดียวกับพรีวิว -> ผลลัพธ์ตรงกัน 100%
-    const pageObjs = state.pages.map((p) => p.objects.map((o2) => ({
-      id: o2.id, t: o2.type, k: o2.key || "", tx: o2.text || "",
-      fit: o2.fit || "contain",
-      box: objBoxCss(o2), oc: objContentCss(o2, 1),
-      src: o2.type === "image" && o2.src ? o2.src : "",
-      sm: o2.type === "stamp" ? stampCfg(o2) : null
-    })));
+    // หน้ารวมชิ้นงานของหน้าเอง + ชิ้นงาน "ทุกหน้า" จากหน้าอื่น (ตำแหน่งเดียวกัน)
+    const pageObjs = state.pages.map((p, pi) => objectsOnPage(pi).map((it) => {
+      const o2 = it.o;
+      return {
+        id: o2.id, t: o2.type, k: o2.key || "", tx: o2.text || "",
+        lb: o2.label || "",
+        fit: o2.fit || "contain",
+        box: objBoxCss(o2), oc: objContentCss(o2, 1),
+        src: o2.type === "image" && o2.src ? o2.src : "",
+        sm: o2.type === "stamp" ? stampCfg(o2) : null
+      };
+    }));
     const recs = [];
     const tv = {};
     const qr = {};
+    const iv = {};
     recList.forEach((ri, n) => {
       const rec = ri < 0 ? null : state.records[ri];
       recs.push(rec);
       pageList.forEach((pi) => pageObjs[pi].forEach((o2) => {
         const val = (rec && o2.k && rec[o2.k] != null && String(rec[o2.k]) !== "") ? String(rec[o2.k]) : "";
         if (o2.t === "text") tv[n + "|" + o2.id] = o2.k ? val : (o2.tx || "");
+        if (o2.t === "image") iv[n + "|" + o2.id] = val;
         if (o2.t === "qr") {
           const q = qrDataUrlFor(val || o2.tx);
           if (q) qr[n + "|" + o2.id] = q;
@@ -2447,7 +2592,7 @@
       idx: recList.map((ri) => (ri < 0 ? 0 : ri + 1)),
       on: recList.map((ri) => (ri < 0 ? true : !state.printOff[ri]))
     };
-    const payload = JSON.stringify({ bgs: bgs, ars: ars, pageObjs: pageObjs, pageList: pageList, recs: recs, tv: tv, qr: qr, prt: prt })
+    const payload = JSON.stringify({ bgs: bgs, ars: ars, pageObjs: pageObjs, pageList: pageList, recs: recs, tv: tv, qr: qr, iv: iv, prt: prt })
       .replace(/</g, "\\u003c"); // กันข้อมูลมี </script> ทำ HTML พัง
 
     const ar0 = ars[pageList[0]] || (A4.w / A4.h);
@@ -2480,8 +2625,13 @@ html,body{margin:0;background:#555;font-family:${FONT_FALLBACK}}
 .page:last-child{page-break-after:auto;break-after:auto}
 .page .bg{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;display:block}
 .oc .ph{color:#9aa4ae;font-weight:400}
+.o .mediawrap{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}
+.o .imgwrap{flex:1 1 auto;min-height:0;width:100%;display:flex;align-items:center;justify-content:center}
+.o .qrwrap{flex:1 1 auto;min-height:0;width:100%;display:flex;align-items:center;justify-content:center}
 .o img{max-width:100%;max-height:100%;display:block}
+.o .imgwrap img{width:100%;height:100%}
 .o img.fit-contain{object-fit:contain}.o img.fit-cover{object-fit:cover}.o img.fit-fill{object-fit:fill}
+.o .obj-cap{display:block;width:100%;flex:none;text-align:center;font-size:.85em;line-height:1.25;padding-top:2px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-height:40%}
 @media print{
   html,body{background:#fff;margin:0!important;padding:0!important;height:auto!important}
   .topbar,.bar,.selbar{display:none!important}
@@ -2519,15 +2669,45 @@ var D=${payload};
 function pad2(n){return n<10?"0"+n:""+n;}
 /* stamp: ค่าตายตัวในเทมเพลต แต่คำนวณใหม่จากเวลาปัจจุบันทุกครั้งที่เรนเดอร์/พิมพ์
    ยกเว้นเมื่อผู้ใช้กด "ตรึงค่า" ไว้ — จะใช้ค่าคงที่ที่บันทึกไว้ ไม่เดินตามเวลาปัจจุบัน */
+var THAI_MONTHS=["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
+var THAI_MONTHS_SHORT=["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+var THAI_DAYS=["อาทิตย์","จันทร์","อังคาร","พุธ","พฤหัสบดี","ศุกร์","เสาร์"];
+var THAI_DAYS_SHORT=["อา.","จ.","อ.","พ.","พฤ.","ศ.","ส."];
+function stampFormatText(d,fmt){
+  if(!d||!fmt)return "";
+  var y=d.getFullYear(),b=y+543,H=d.getHours(),h12=H%12||12;
+  var map={YYYY:String(y),YY:pad2(y%100),BBBB:String(b),BB:pad2(b%100),
+    MMMM:THAI_MONTHS[d.getMonth()],MMM:THAI_MONTHS_SHORT[d.getMonth()],
+    MM:pad2(d.getMonth()+1),M:String(d.getMonth()+1),DD:pad2(d.getDate()),D:String(d.getDate()),
+    dddd:THAI_DAYS[d.getDay()],ddd:THAI_DAYS_SHORT[d.getDay()],
+    HH:pad2(H),H:String(H),hh:pad2(h12),h:String(h12),
+    mm:pad2(d.getMinutes()),m:String(d.getMinutes()),ss:pad2(d.getSeconds()),s:String(d.getSeconds()),
+    A:H<12?"AM":"PM"};
+  var tokens=["YYYY","BBBB","MMMM","dddd","MMM","ddd","YY","BB","MM","DD","HH","hh","mm","ss","M","D","H","h","m","s","A"];
+  var src=String(fmt),out="",i=0;
+  while(i<src.length){
+    if(src.charAt(i)==="["){
+      var end=src.indexOf("]",i+1);
+      if(end>i){out+=src.slice(i+1,end);i=end+1;continue;}
+    }
+    var hit="";
+    for(var k=0;k<tokens.length;k++){if(src.substr(i,tokens[k].length)===tokens[k]){hit=tokens[k];break;}}
+    if(hit){out+=(map[hit]!=null?map[hit]:hit);i+=hit.length;}
+    else{out+=src.charAt(i);i++;}
+  }
+  return out;
+}
 function stampText(sm){
   sm=sm||{};
   if(sm.frozen&&sm.frozenText)return String(sm.frozenText);
   var d=null, m;
-  if(sm.mode==="base"){m=/^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(String(sm.base||""));if(m)d=new Date(+m[1],+m[2]-1,+m[3]);}
+  if(sm.mode==="base"){m=/^(\\d{4})-(\\d{1,2})-(\\d{1,2})/.exec(String(sm.base||""));if(m)d=new Date(+m[1],+m[2]-1,+m[3]);}
   if(!d)d=new Date();
   var sh=parseInt(sm.shift,10);if(isNaN(sh))sh=0;if(sh>12)sh=12;if(sh<-12)sh=-12;
   if(sh){var day=d.getDate();d=new Date(d.getFullYear(),d.getMonth()+sh,1);
     d.setDate(Math.min(day,new Date(d.getFullYear(),d.getMonth()+1,0).getDate()));}
+  var custom=stampFormatText(d,sm.format);
+  if(custom)return custom;
   var date=pad2(d.getDate())+"/"+pad2(d.getMonth()+1)+"/"+d.getFullYear();
   var time=pad2(d.getHours())+":"+pad2(d.getMinutes());
   var p=sm.part||"datetime";
@@ -2589,10 +2769,21 @@ function render(list){
           st.textContent=stampText(o.sm);
           oc.appendChild(st);
         }else if(o.t==="image"){
-          if(o.src){var im=document.createElement("img");im.className="fit-"+(o.fit||"contain");im.src=o.src;oc.appendChild(im);}
+          var mw=document.createElement("div");mw.className="mediawrap";
+          var iw=document.createElement("div");iw.className="imgwrap";
+          var isrc=D.iv[ri+"|"+o.id]||o.src||"";
+          if(isrc){var im=document.createElement("img");im.className="fit-"+(o.fit||"contain");im.alt=o.lb||o.k||"";im.src=isrc;iw.appendChild(im);}
+          mw.appendChild(iw);
+          if(o.lb){var ic=document.createElement("span");ic.className="obj-cap";ic.textContent=o.lb;mw.appendChild(ic);}
+          oc.appendChild(mw);
         }else if(o.t==="qr"){
           var q=D.qr[ri+"|"+o.id];
-          if(q){var qi=document.createElement("img");qi.src=q;oc.appendChild(qi);}
+          var qw=document.createElement("div");qw.className="mediawrap";
+          var qh=document.createElement("div");qh.className="qrwrap";
+          if(q){var qi=document.createElement("img");qi.src=q;qh.appendChild(qi);}
+          qw.appendChild(qh);
+          if(o.lb){var qc=document.createElement("span");qc.className="obj-cap";qc.textContent=o.lb;qw.appendChild(qc);}
+          oc.appendChild(qw);
         }
         el.appendChild(oc);
         page.appendChild(el);
@@ -3087,24 +3278,9 @@ render(allIdx());
     // add object
     document.querySelectorAll("[data-add]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        const type = btn.dataset.add;
-        if (type === "image") {
-          pendingImageAdd = (src) => addObject("image", { src: src });
-          $("objImageFile").click();
-          return;
-        }
-        addObject(type);
+        // ฟิลด์ภาพ = ช่องรับ URL/พาธจากข้อมูล ไม่เปิด file picker เพื่อ import เข้าเทมเพลต
+        addObject(btn.dataset.add);
       });
-    });
-    $("objImageFile").addEventListener("change", async (e) => {
-      const f = e.target.files[0];
-      e.target.value = "";
-      if (!f || !pendingImageAdd) return;
-      try {
-        const src = await readFileDataUrl(f);
-        pendingImageAdd(src);
-      } catch (err) { toast(err.message, "err"); }
-      pendingImageAdd = null;
     });
     $("btnAddField").addEventListener("click", () => { addObject("text"); switchTab("edit"); });
 
@@ -3129,7 +3305,10 @@ render(allIdx());
     const simple = {
       edKey: (o, v) => { o.key = v.trim(); },
       edText: (o, v) => { o.text = v; },
-      edType: (o, v) => { o.type = v; },
+      edType: (o, v) => { o.type = v; if (v !== "stamp") o.allPages = false; },
+      edImageLabel: (o, v) => { o.label = v.trim(); },
+      edQrLabel: (o, v) => { o.label = v.trim(); },
+      edStampFormat: (o, v) => { o.stampFormat = v.trim(); },
       edAlign: (o, v) => { o.align = v; },
       edColor: (o, v) => { o.color = v; },
       edImageFit: (o, v) => { o.fit = v; },
@@ -3173,6 +3352,16 @@ render(allIdx());
       if (o) { o.italic = $("edItalic").checked; refreshAll(); saveDraftSoon(); }
     });
     $("bFamily").addEventListener("change", updateBoldNote);
+    if ($("edStampAllPages")) {
+      $("edStampAllPages").addEventListener("change", () => {
+        const o = selected();
+        if (!o || o.type !== "stamp") return;
+        o.allPages = $("edStampAllPages").checked;
+        refreshAll();
+        saveDraftSoon();
+        toast(o.allPages ? "แสดงวันเวลานี้บนทุกหน้าแล้ว" : "แสดงเฉพาะหน้าที่วางไว้", "ok");
+      });
+    }
     $("edLockAspect").addEventListener("change", () => {
       const o = selected();
       if (o) { o.lockAspect = $("edLockAspect").checked; saveDraftSoon(); }

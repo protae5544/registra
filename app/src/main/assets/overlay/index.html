@@ -137,7 +137,7 @@
     <div class="row toolstrip">
       <span class="ts-lab">เพิ่ม</span>
       <button class="add-btn" type="button" data-add="text" title="ข้อความที่ผูกกับ key ของข้อมูล">+ ข้อความ</button>
-      <button class="add-btn" type="button" data-add="image" title="รูปโลโก้/ลายเซ็น/รูปประกอบ">+ รูป</button>
+      <button class="add-btn" type="button" data-add="image" title="ฟิลด์รับภาพจาก URL หรือพาธ (ไม่ใช่การนำเข้าไฟล์)">+ รูป</button>
       <button class="add-btn" type="button" data-add="qr" title="คิวอาร์โค้ดจากค่าในข้อมูล">+ QR</button>
       <button class="add-btn" type="button" data-add="stamp" title="วันที่/เวลาปัจจุบัน คำนวณใหม่ทุกครั้งที่เปิดหรือพิมพ์">+ วันเวลา</button>
       <span class="ts-div" aria-hidden="true"></span>
@@ -229,7 +229,17 @@
               </div>
               <div class="grid2"><label>วันที่ที่กำหนด</label><input id="edStampBase" type="text" placeholder="YYYY-MM-DD"></div>
               <div class="grid2"><label>เลื่อนเดือน</label><input id="edStampShift" type="number" step="1" min="-12" max="12"></div>
-              <div class="muted" style="font-size:var(--t-xs);margin-top:6px">เลื่อนได้ −12…+12 เดือน · ดูตัวอย่าง: <b id="stampPreview">—</b></div>
+              <div class="grid2"><label>รูปแบบเอง</label><input id="edStampFormat" type="text" list="stampFormatPresets" placeholder="ว่าง = ตามที่เลือกด้านบน"></div>
+              <datalist id="stampFormatPresets">
+                <option value="DD/MM/YYYY"></option>
+                <option value="DD/MM/YYYY HH:mm"></option>
+                <option value="D MMMM BBBB"></option>
+                <option value="D MMMM BBBB HH:mm น."></option>
+                <option value="YYYY-MM-DD"></option>
+                <option value="DD MMM BB"></option>
+              </datalist>
+              <div class="muted" style="font-size:var(--t-xs);margin-top:6px">รูปแบบเองใช้แทนตัวเลือกด้านบน · โทเคน: <code>DD</code> <code>MM</code> <code>YYYY</code> (ค.ศ.) <code>BBBB</code> (พ.ศ.) <code>MMMM</code> ชื่อเดือน <code>HH:mm</code> เวลา <code>[ข้อความ]</code> ข้อความคงที่ · ตัวอย่าง: <b id="stampPreview">—</b></div>
+              <div class="grid2"><label>ทุกหน้า</label><span class="row"><input id="edStampAllPages" type="checkbox"><span class="muted" style="font-size:var(--t-xs)">แสดงชิ้นงานนี้บนทุกหน้า (ตำแหน่งเดียวกัน)</span></span></div>
               <div id="stampWarn" class="notice" role="status"></div>
               <div id="stampFrozenInfo" class="frozeninfo" style="display:none"></div>
               <div class="row" style="margin-top:8px">
@@ -254,9 +264,17 @@
           </div>
 
           <div class="group" id="grpImage">
-            <div class="gh">รูปภาพ</div>
-            <div class="grid2"><label>วิธีใส่รูป</label>
+            <div class="gh">ฟิลด์ภาพ</div>
+            <div class="muted" style="font-size:var(--t-xs);margin-bottom:8px">ค่าภาพรับจาก Key ในแท็บ “กรอกข้อมูล” — ใส่ URL, <code>file:///…</code> หรือพาธในเครื่อง เช่น <code>/storage/emulated/0/Pictures/logo.png</code></div>
+            <div class="grid2"><label>ป้ายกำกับ</label><input id="edImageLabel" type="text" placeholder="ไม่บังคับ"></div>
+            <div class="grid2"><label>วิธีแสดงรูป</label>
               <select id="edImageFit"><option value="contain">พอดีกรอบ (ไม่ตัด)</option><option value="cover">เต็มกรอบ (ตัด)</option><option value="fill">ยืดเต็ม</option></select></div>
+          </div>
+
+          <div class="group" id="grpQr">
+            <div class="gh">คิวอาร์โค้ด</div>
+            <div class="muted" style="font-size:var(--t-xs);margin-bottom:8px">ค่าที่เข้ารหัสมาจาก Key ในแท็บ “กรอกข้อมูล” (ถ้าไม่มีข้อมูล จะใช้ช่อง “ข้อความ” ด้านบน)</div>
+            <div class="grid2"><label>ป้ายกำกับ</label><input id="edQrLabel" type="text" placeholder="ไม่บังคับ"></div>
           </div>
 
           <div class="group">
@@ -539,7 +557,6 @@
 <div id="toast" role="status" aria-live="polite"></div>
 
 <input type="file" id="layoutFile" accept=".json,application/json" class="hidden">
-<input type="file" id="objImageFile" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" class="hidden">
 
 <script src="app.js"></script>
 </body>
