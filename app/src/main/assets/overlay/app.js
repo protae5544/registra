@@ -964,7 +964,16 @@
         if (!state.records.length) return;
         state.records[state.recIdx][k] = inp.value;
         renderCounters();
-        refreshPagesSoon();
+        // Update canvas object text directly without destroying full page DOM
+        const rec = state.records[state.recIdx];
+        document.querySelectorAll(".page.active .obj").forEach((el) => {
+          const oid = el.dataset.id;
+          const o = (curPage() && curPage().objects || []).find((x) => x.id === oid);
+          if (o && (o.key === k || o.type === "stamp")) {
+            const cnt = el.querySelector(".content");
+            if (cnt) fillContent(cnt, o, rec);
+          }
+        });
         saveDraftSoon();
       });
       head.appendChild(lab);
@@ -980,7 +989,7 @@
     $("histEmpty").style.display = history.length ? "none" : "block";
     history.forEach((h, i) => {
       const t = document.createElement("div");
-      t.className = "thumb";
+      t.className = "thumb2";
       const pic = document.createElement("div");
       pic.className = "pic";
       if (h.thumb) pic.style.backgroundImage = "url(" + h.thumb + ")";
@@ -1443,7 +1452,6 @@
   function copyObjToPage(srcObj, dstIdx) {
     const dst = state.pages[dstIdx];
     if (!dst || !srcObj) return null;
-    if (srcObj.key && dst.objects.some((o) => o.key === srcObj.key && o.id !== srcObj.id)) return null;
     const copy = JSON.parse(JSON.stringify(srcObj));
     copy.id = uid();
     copy.z = maxZ(dst) + 1;
@@ -1960,11 +1968,13 @@
       const dy = e.clientY - st.startY;
       if (!st.moved && Math.abs(dy) < 3) return;
       st.moved = true;
-      const listRect = listEl.getBoundingClientRect();
+      const listRect = listEl.getBoundingClientRect ? listEl.getBoundingClientRect() : null;
       const top0 = listRect && listRect.height ? listRect.top : 0;
+      const scrollY = listEl.scrollTop || 0;
       let target = 0;
       st.rows.forEach((row, i) => {
-        const mid = top0 + i * st.h + st.h / 2;
+        const r = row.getBoundingClientRect ? row.getBoundingClientRect() : null;
+        const mid = (r && r.height > 0) ? (r.top + r.height / 2) : (top0 - scrollY + i * st.h + st.h / 2);
         if (e.clientY >= mid) target = i;
       });
       target = clamp(target, 0, st.rows.length - 1);
@@ -2046,20 +2056,32 @@
       const html = buildExportHtml({ order: [sel[i]], pages: pages });
       i++;
       try {
-        const doc = frame.contentWindow.document;
+        const win = frame.contentWindow;
+        const doc = win.document;
         doc.open();
         doc.write(html);
         doc.close();
-        if (typeof frame.contentWindow.focus === "function") frame.contentWindow.focus();
-        frame.contentWindow.print();
-        toast("สั่งพิมพ์ชุด " + i + "/" + sel.length + " — " + name, "ok");
+        const doPrint = () => {
+          try {
+            if (typeof win.focus === "function") win.focus();
+            win.print();
+            toast("สั่งพิมพ์ชุด " + i + "/" + sel.length + " — " + name, "ok");
+          } catch (e) {
+            console.warn(e);
+          }
+          setTimeout(next, 800);
+        };
+        if (doc.fonts && doc.fonts.ready) {
+          doc.fonts.ready.then(() => setTimeout(doPrint, 250)).catch(doPrint);
+        } else {
+          setTimeout(doPrint, 400);
+        }
       } catch (err) {
         console.error(err);
         frame.remove();
         toast("สั่งพิมพ์ไม่ได้: " + err.message + " — ลองใช้ปุ่ม สร้างไฟล์พิมพ์ แล้วเปิดไฟล์", "err");
         return;
       }
-      setTimeout(next, 1500);
     };
     next();
   }
@@ -2777,7 +2799,14 @@ render(allIdx());
 
   function draftData(lite) {
     const d = {
-      pages: state.pages, records: state.records,
+      pages: lite ? state.pages.map((p) => {
+        const pCopy = Object.assign({}, p, {
+          objects: p.objects ? p.objects.map((o) => Object.assign({}, o)) : []
+        });
+        if (p.bg) pCopy.bg = { kind: p.bg.kind, src: "", w: p.bg.w, h: p.bg.h, name: p.bg.name };
+        return pCopy;
+      }) : state.pages,
+      records: state.records,
       pageIdx: state.pageIdx, recIdx: state.recIdx,
       defaultFamily: state.defaultFamily,
       printOrder: printIndexes(),
@@ -2818,9 +2847,6 @@ render(allIdx());
       // สำรองลง localStorage แบบย่อไว้ด้วย (กรณี browser ล้าง IndexedDB)
       try {
         const lite = draftData(true);
-        lite.pages.forEach((p) => {
-          if (p.bg) p.bg = { kind: p.bg.kind, src: "", w: p.bg.w, h: p.bg.h, name: p.bg.name };
-        });
         localStorage.setItem(DRAFT_KEY, JSON.stringify(lite));
       } catch (e) { /* localStorage เต็ม — ไม่เป็นไร มี IndexedDB อยู่แล้ว */ }
     } catch (err) {
@@ -2830,9 +2856,6 @@ render(allIdx());
       } catch (e) {
         try {
           const lite = draftData(true);
-          lite.pages.forEach((p) => {
-            if (p.bg) p.bg = { kind: p.bg.kind, src: "", w: p.bg.w, h: p.bg.h, name: p.bg.name };
-          });
           localStorage.setItem(DRAFT_KEY, JSON.stringify(lite));
           toast("เซฟ draft (ไม่รวมภาพพื้นหลังและไฟล์ฟอนต์ — พื้นที่เต็ม)");
         } catch (e2) {
@@ -2951,7 +2974,7 @@ render(allIdx());
       try { loadRecords(JSON.parse(txt), "paste", false); }
       catch (err) { toast("JSON ไม่ถูกต้อง: " + err.message, "err"); }
     };
-    $("btnPasteLoad").addEventListener("click", loadPaste);
+    $("btnPasteLoad").addEventListener("click", () => $("jsonFile").click());
     $("btnPasteLoad2").addEventListener("click", loadPaste);
     $("btnClearJson").addEventListener("click", clearRecords);
 
@@ -2983,7 +3006,16 @@ render(allIdx());
     });
 
     // ฟอนต์ที่ผู้ใช้แนบ
-    $("btnFonts").addEventListener("click", () => $("fontFile").click());
+    $("btnFonts").addEventListener("click", () => {
+      const c = $("cardFont");
+      if (c) {
+        c.classList.remove("cardbody-folded");
+        c.scrollIntoView({ behavior: "smooth", block: "center" });
+        toast("เปิดกล่องจัดการฟอนต์ด้านล่างแล้ว", "ok");
+      } else {
+        $("fontFile").click();
+      }
+    });
     $("fontFile").addEventListener("change", (e) => {
       const files = Array.from(e.target.files || []);
       e.target.value = "";
@@ -3310,11 +3342,10 @@ render(allIdx());
     $("draftDismiss").addEventListener("click", dismissDraft);
 
     // --- Spatial Hall + sheet + strip ---
-    ["toolDoc", "toolFill"].forEach((id) => { const b = $(id); if (b) b.addEventListener("click", gotoStage); });
-    ["toolLib", "toolData"].forEach((id) => {
-      const b = $(id); if (!b) return;
-      b.addEventListener("click", () => { gotoStage(); toast("ส่วนนี้จะเปิดในเมนูเพิ่มเติมของหน้าทำงาน", "ok"); });
-    });
+    if ($("toolDoc")) $("toolDoc").addEventListener("click", () => { gotoStage(); activateTab("edit"); });
+    if ($("toolFill")) $("toolFill").addEventListener("click", () => { gotoStage(); activateTab("fill"); });
+    if ($("toolLib")) $("toolLib").addEventListener("click", () => { gotoStage(); activateTab("history"); });
+    if ($("toolData")) $("toolData").addEventListener("click", () => { gotoStage(); activateTab("fields"); });
     const moreBtn = $("btnMore");
     if (moreBtn) moreBtn.addEventListener("click", () => openSheet("sheetWrap"));
     const sheetCloseB = $("sheetClose");
@@ -3401,7 +3432,12 @@ render(allIdx());
     setTimeout(() => {
       if (name === "bg") $("bgFile").click();
       else if (name === "data") { gotoStage(); $("jsonFile2").click(); }
-      else if (name === "font") $("fontFile").click();
+      else if (name === "font") {
+        gotoStage();
+        const c = $("cardFont");
+        if (c) { c.classList.remove("cardbody-folded"); c.scrollIntoView({ behavior: "smooth", block: "center" }); }
+        else { $("fontFile").click(); }
+      }
       else if (name === "export") {
         gotoStage();
         const c = $("cardExport");

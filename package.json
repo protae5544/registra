@@ -5,5 +5,8 @@
   "scripts": {
     "dev": "node serve-overlay.js",
     "start": "node serve-overlay.js"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.3"
   }
 }

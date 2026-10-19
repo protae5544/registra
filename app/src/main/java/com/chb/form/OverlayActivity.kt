@@ -181,7 +181,7 @@ class OverlayActivity : ComponentActivity() {
         @JavascriptInterface
         fun saveBase64(name: String, b64: String, mime: String): String = try {
             val bytes = Base64.decode(b64, Base64.DEFAULT)
-            val safe = name.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "export.bin" }
+            val safe = name.replace(Regex("[^A-Za-z0-9._\\-\\u0E00-\\u0E7F]"), "_").ifBlank { "export.bin" }
             val dir = File(filesDir, "export").apply { mkdirs() }
             val file = File(dir, safe)
             file.writeBytes(bytes)

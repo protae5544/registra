@@ -19,7 +19,11 @@ const TYPES = {
   ".svg": "image/svg+xml",
   ".webp": "image/webp",
   ".pdf": "application/pdf",
-  ".woff2": "font/woff2"
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".otf": "font/otf",
+  ".ttc": "font/collection"
 };
 
 const server = http.createServer((req, res) => {
