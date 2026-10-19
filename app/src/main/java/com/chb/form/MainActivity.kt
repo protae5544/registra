@@ -33,7 +33,7 @@ class MainActivity : ComponentActivity() {
                 var currentToast by remember { mutableStateOf<ToastMessage?>(null) }
                 var screen by remember { mutableStateOf("import") }
 
-                BackHandler(enabled = screen == "fill") { screen = "import" }
+                BackHandler(enabled = screen == "fill" || screen == "workspace") { screen = "import" }
 
                 LaunchedEffect(Unit) {
                     templateVm.fileReady.collect { file ->
@@ -61,7 +61,12 @@ class MainActivity : ComponentActivity() {
                                 onPdf = { templateVm.importPdf(it) },
                                 onImage = { templateVm.importImage(it) },
                                 onJson = { templateVm.importJson(it) },
-                                onContinue = { screen = "fill" }
+                                onContinue = { screen = "fill" },
+                                onWorkspace = { screen = "workspace" }
+                            )
+                            "workspace" -> NeoWorkspaceScreen(
+                                onExport = { templateVm.generate() },
+                                onBack = { screen = "import" }
                             )
                             else -> {
                                 val tpl = tplState.template

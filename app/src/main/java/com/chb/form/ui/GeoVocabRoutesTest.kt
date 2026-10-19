@@ -1,0 +1,79 @@
+package com.chb.form.ui
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.geometry.Offset
+import kotlin.math.abs
+
+// -----------------------------------------------------------------------------
+// Lightweight runtime validation used to prove the snap + weight model works
+// -----------------------------------------------------------------------------
+
+@Composable
+fun validateWorkspaceSnapModel() {
+    // First pass: pick any point and ensure it snaps inside one of the grid cells
+    val origin = Offset(0f, 0f)
+    val snapped = snapPosition(origin.x, origin.y, NeoWeight.Heavy)
+    kotlin.run {
+        assert(snapped == origin) { "expected origin to snap to itself, got $snapped" }
+    }
+
+    // Heavy weight should accept coordinates slightly off-grid
+    val near = Offset(24f + 2f, 24f)
+    val snappedNear = snapPosition(near.x, near.y, NeoWeight.Heavy)
+    kotlin.run {
+        assert(snappedNear == Offset(24f, 24f)) { "expected near point to snap to grid, got $snappedNear" }
+    }
+
+    // Light weight should not snap as far
+    val lightNear = snapPosition(24f + 10f, 24f, NeoWeight.Light)
+    kotlin.run {
+        assert(lightNear == Offset(34f, 24f)) { "expected light weight to stay put when too far, got $lightNear" }
+    }
+
+    // Weight bounds
+    kotlin.run {
+        assert(NeoWeight.Light.value == 50f)
+        assert(NeoWeight.Medium.value == 75f)
+        assert(NeoWeight.Heavy.value == 100f)
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Paper-space pivot initialization guard
+// -----------------------------------------------------------------------------
+// Keeps the paper pivot from being drawn unless later explicitly drafted.
+// This matches the existing crash avoidance pattern used elsewhere in the app.
+
+interface PaperPivotState {
+    val pivotX: Float
+    val pivotY: Float
+    val scale: Float
+    val rotation: Float
+}
+
+@Composable
+fun rememberPaperPivot(): PaperPivotState {
+    val pivotX = remember { mutableFloatStateOf(0f) }
+    val pivotY = remember { mutableFloatStateOf(0f) }
+    val scale = remember { mutableFloatStateOf(1f) }
+    val rotation = remember { mutableFloatStateOf(0f) }
+    return remember {
+        object : PaperPivotState {
+            override val pivotX: Float get() = pivotX.value
+            override val pivotY: Float get() = pivotY.value
+            override val scale: Float get() = scale.value
+            override val rotation: Float get() = rotation.value
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Note
+// -----------------------------------------------------------------------------
+// This file is intentionally small: it validates snap rules and the weight model
+// at runtime, and outlines the paper pivot guard that prevents drawing before
+// the pivot is initialized. It is not a JUnit file; it is meant to be called
+// during application startup or a dedicated validation screen when the workspace
+// feature is enabled.

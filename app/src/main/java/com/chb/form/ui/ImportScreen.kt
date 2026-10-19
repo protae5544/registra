@@ -31,7 +31,8 @@ fun ImportScreen(
     onImage: (Uri) -> Unit,
     onJson: (String) -> Unit,
     onContinue: () -> Unit,
-    onBack: () -> Unit = {}
+    onBack: () -> Unit = {},
+    onWorkspace: () -> Unit = {}
 ) {
     var jsonText by remember { mutableStateOf("") }
     val pickPdf = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -166,6 +167,10 @@ fun ImportScreen(
             Icon(Icons.Rounded.Description, contentDescription = null)
             Spacer(Modifier.width(8.dp))
             Text("ไปหน้ากรอก / เพิ่ม-ลบฟิลด์")
+        }
+
+        OutlinedButton(onClick = onWorkspace, modifier = Modifier.fillMaxWidth()) {
+            Text("เปิด Workspace (ทดลอง)")
         }
     }
 }
