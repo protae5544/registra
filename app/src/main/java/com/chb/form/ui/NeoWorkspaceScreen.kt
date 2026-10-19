@@ -4,7 +4,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.animateFloatAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -141,12 +141,12 @@ fun animateSpringOffset(
     label: String
 ): Offset {
     val spec = NeoSpringEasing(weight.value)
-    val x by androidx.compose.animation.animateFloatAsState(
+    val x by animateFloatAsState(
         targetValue = target.x,
         animationSpec = spec,
         label = "${label}_x"
     )
-    val y by androidx.compose.animation.animateFloatAsState(
+    val y by animateFloatAsState(
         targetValue = target.y,
         animationSpec = spec,
         label = "${label}_y"
