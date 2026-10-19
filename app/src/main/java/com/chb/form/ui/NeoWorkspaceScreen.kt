@@ -4,7 +4,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FormatPaint
+import androidx.compose.material.icons.rounded.Straighten
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Style
 import androidx.compose.material.icons.rounded.Upload
@@ -140,12 +141,12 @@ fun animateSpringOffset(
     label: String
 ): Offset {
     val spec = NeoSpringEasing(weight.value)
-    val x by androidx.compose.animation.core.animateFloatAsState(
+    val x by androidx.compose.animation.animateFloatAsState(
         targetValue = target.x,
         animationSpec = spec,
         label = "${label}_x"
     )
-    val y by androidx.compose.animation.core.animateFloatAsState(
+    val y by androidx.compose.animation.animateFloatAsState(
         targetValue = target.y,
         animationSpec = spec,
         label = "${label}_y"
@@ -162,7 +163,7 @@ sealed interface ToolMode {
     val icon: ImageVector
     val weight: NeoWeight
     object Palette : ToolMode { override val title = "พาเลต"; override val icon = Icons.Rounded.FormatPaint; override val weight = NeoWeight.Light }
-    object Geometry : ToolMode { override val title = "เรขา"; override val icon = Icons.Rounded.Share; override val weight = NeoWeight.Medium }
+    object Geometry : ToolMode { override val title = "เรขา"; override val icon = Icons.Rounded.Straighten; override val weight = NeoWeight.Medium }
     object Annotation : ToolMode { override val title = "อโนเทชั่น"; override val icon = Icons.Rounded.Edit; override val weight = NeoWeight.Medium }
     object Styling : ToolMode { override val title = "สไตล์"; override val icon = Icons.Rounded.Style; override val weight = NeoWeight.Light }
     object Export : ToolMode { override val title = "ส่งออก"; override val icon = Icons.Rounded.Upload; override val weight = NeoWeight.Heavy }
@@ -303,7 +304,7 @@ private fun ToolPanel(
                 )
                 ToolButton(
                     label = "จุดเชื่อมโยง",
-                    icon = Icons.Rounded.Share,
+                    icon = Icons.Rounded.Straighten,
                     weight = NeoWeight.Medium,
                     active = false,
                     onClick = { canvas.addCircle(180f, 200f) }
@@ -319,7 +320,7 @@ private fun ToolPanel(
                 )
                 ToolButton(
                     label = "เส้นขอบ",
-                    icon = Icons.Rounded.Share,
+                    icon = Icons.Rounded.Straighten,
                     weight = NeoWeight.Light,
                     active = false,
                     onClick = { /* style tweak in next pass */ }
@@ -354,7 +355,7 @@ private fun ToolButton(
 ) {
     val hap = LocalHapticFeedback.current
     val press = remember { mutableStateOf(false) }
-    val scale by androidx.compose.animation.core.animateFloatAsState(
+    val scale by animateFloatAsState(
         targetValue = if (press.value) 0.94f else 1f,
         label = "tool_press"
     )
